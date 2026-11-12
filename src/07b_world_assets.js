@@ -67,6 +67,7 @@ function artPart(b, key, options = {}) {
       const pivot = binding?.pivot || defaultPivot;
       const vertex = b.P.length / 3;
       remap.set(index, vertex);
+      if (options.sourceVertices) options.sourceVertices.push(index);
       b.indices.push(vertex);
       b.P.push(p.x, p.y, p.z); b.Nn.push(n.x, n.y, n.z); b.Cc.push(c.r, c.g, c.b);
       b.T.push(team); b.B.push(binding?.bone ?? defaultBone);
@@ -75,7 +76,7 @@ function artPart(b, key, options = {}) {
       bounds.expandByPoint(p);
     }
   }
-  return { bounds, joints, point };
+  return { bounds, joints, point, scale };
 }
 
 const BUILDING_ART = {

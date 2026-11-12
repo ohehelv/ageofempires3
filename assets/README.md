@@ -13,6 +13,6 @@
 | Бизон | [Poly by Google — Bison](https://poly.pizza/m/9sTrha-TxdS) | [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/) |
 | Застава | [Kenney — Pirate Kit](https://kenney.nl/assets/pirate-kit), [версия Aether Assets на Hugging Face](https://huggingface.co/datasets/StarAtNyte1/aether-assets/resolve/main/models/watchtower/watchtower.glb) | CC0 1.0 |
 
-Модели адаптированы для игры. Масштаб, палитры и сетки изменены. Для бизона упрощена сетка, а цвета запечены в вершины. Бег, атаки и рабочие движения используют анимацию игры.
+Модели адаптированы для игры. Масштаб, палитры и сетки изменены. Для бизона упрощена сетка, а цвета запечены в вершины. Олень, карибу и вилорог используют оригинальные циклы покоя, ходьбы, галопа и падения из набора Quaternius.
 
 `models.json` содержит игровые сетки. Обычная сборка использует этот файл локально. Для обновления набора установите Python-библиотеки NumPy и Pillow и запустите `python tools/import-models.py`. Источники и ревизии указаны в скрипте.

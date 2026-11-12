@@ -2,9 +2,11 @@
 
 import base64
 from concurrent.futures import ThreadPoolExecutor
+import gzip
 from hashlib import sha256
 from io import BytesIO
 import json
+from math import acos, cos, pi, sin
 from pathlib import Path
 import struct
 import subprocess
@@ -71,10 +73,12 @@ SOURCES = {
 
 TRIANGLE_LIMITS = dict.fromkeys(('pine', 'spruce', 'snowpine', 'oak', 'cottonwood', 'birch', 'mesquite'), 650)
 TRIANGLE_LIMITS.update(dict.fromkeys(('captain', 'henry', 'anne', 'adventurer', 'farmer'), 2200))
-TRIANGLE_LIMITS.update(dict.fromkeys(('wolf', 'horse', 'doe', 'stag', 'bear', 'bison'), 1300))
+TRIANGLE_LIMITS.update(dict.fromkeys(('wolf', 'horse', 'bear', 'bison'), 1300))
 TRIANGLE_LIMITS.update(dict.fromkeys(('barrel', 'crate', 'sacks', 'hay', 'coinBag', 'corn', 'wheat'), 420))
 TRIANGLE_LIMITS.update(dict.fromkeys(('cannon', 'cart', 'treasure', 'well'), 1200))
 TRIANGLE_LIMITS.update(dict.fromkeys(('bow', 'spear', 'roundShield', 'claymore', 'bomb', 'musket', 'pistol', 'cutlass', 'axe'), 520))
+
+DEER_CLIPS = {'Idle': 16, 'Walk': 20, 'Gallop': 16, 'Death': 22}
 
 
 def download(url):
@@ -123,17 +127,22 @@ class Gltf:
             self.data = json.loads(raw)
         self.buffers = [resource(url, b['uri']) if 'uri' in b else binary for b in self.data['buffers']]
         self.nodes = self.data['nodes']
-        self.world = {}
         self.images = {}
+        self.world = self.pose({})
+
+    def pose(self, overrides):
+        matrices = {}
+
+        def visit(index, parent):
+            node = {**self.nodes[index], **overrides.get(index, {})}
+            matrix = matrices[index] = parent @ node_matrix(node)
+            for child in node.get('children', []):
+                visit(child, matrix)
+
         roots = self.data['scenes'][self.data.get('scene', 0)]['nodes']
         for root in roots:
-            self.visit(root, np.eye(4))
-
-    def visit(self, index, parent):
-        node = self.nodes[index]
-        world = self.world[index] = parent @ node_matrix(node)
-        for child in node.get('children', []):
-            self.visit(child, world)
+            visit(root, np.eye(4))
+        return matrices
 
     def view(self, index):
         view = self.data['bufferViews'][index]
@@ -179,10 +188,11 @@ class Gltf:
         return np.rint(255 * np.where(color <= 0.0031308, 12.92 * color,
                                      1.055 * color ** (1 / 2.4) - 0.055)).clip(0, 255).astype('u1')
 
-    def parts(self):
+    def parts(self, matrices=None):
+        matrices = self.world if matrices is None else matrices
         joint_names, joint_points = [], []
         joint_lookup = {}
-        for index, world in self.world.items():
+        for index, world in matrices.items():
             node = self.nodes[index]
             if 'mesh' not in node:
                 continue
@@ -195,10 +205,10 @@ class Gltf:
                         continue
                     joint_lookup[j] = len(joint_names)
                     joint_names.append(self.nodes[j].get('name', ''))
-                    joint_points.append(self.world[j][:3, 3])
+                    joint_points.append(matrices[j][:3, 3])
                 joint_ids = np.array([joint_lookup[j] for j in joints])
                 inverse_bind = self.accessor(skin['inverseBindMatrices']).reshape(-1, 4, 4).transpose(0, 2, 1)
-                skin_matrices = np.array([self.world[j] for j in joints]) @ inverse_bind
+                skin_matrices = np.array([matrices[j] for j in joints]) @ inverse_bind
             for prim in mesh['primitives']:
                 assert prim.get('mode', 4) == 4, self.url
                 attrs = prim['attributes']
@@ -231,6 +241,101 @@ class Gltf:
                 yield node.get('name', mesh.get('name', '')), p, n, color, joint, faces, joint_names, joint_points
 
 
+def sample_track(times, values, time, rotation):
+    upper = times.searchsorted(time, side='right')
+    if upper == 0:
+        return values[0]
+    if upper == len(times):
+        return values[-1]
+    a, b = values[upper - 1:upper + 1]
+    t = (time - times[upper - 1]) / (times[upper] - times[upper - 1])
+    if not rotation:
+        return a + (b - a) * t
+    dot = np.dot(a, b)
+    if dot < 0:
+        dot, b = -dot, -b
+    if dot > 0.9995:
+        q = a + (b - a) * t
+        return q / np.linalg.norm(q)
+    angle = acos(dot)
+    return (a * sin((1 - t) * angle) + b * sin(t * angle)) / sin(angle)
+
+
+def pronghorn_horns(gltf, matrices):
+    # Local to the head so the extra horns follow the source rig in every pose.
+    head = next(i for i, node in enumerate(gltf.nodes) if node.get('name') == 'Head')
+    rest = gltf.world[head]
+    vertices = []
+    for side in (-1, 1):
+        center = np.array([side * 0.19, 0.16, -0.035]) + rest[:3, 3]
+        tip = center + [side * 0.12, 0.56, -0.04]
+        rim = [center + [0.105 * cos(a * pi / 3), 0, 0.105 * sin(a * pi / 3)] for a in range(6)]
+        for i in range(6):
+            vertices.extend((rim[i], tip, rim[(i + 1) % 6]))
+    transform = matrices[head] @ np.linalg.inv(rest)
+    p = np.array(vertices) @ transform[:3, :3].T + transform[:3, 3]
+    triangles = p.reshape(-1, 3, 3)
+    normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
+    normals /= np.linalg.norm(normals, axis=1, keepdims=True)
+    return p, np.repeat(normals, 3, axis=0)
+
+
+def deer_motion(gltf, anchor, scale, add_horns):
+    animations = {a['name'].rsplit('|', 1)[-1]: a for a in gltf.data['animations']}
+    clips, position_frames, normal_frames = {}, [], []
+    for name, count in DEER_CLIPS.items():
+        clip = animations[name]
+        tracks = []
+        for channel in clip['channels']:
+            sampler = clip['samplers'][channel['sampler']]
+            assert sampler.get('interpolation', 'LINEAR') == 'LINEAR'
+            target = channel['target']
+            tracks.append((target['node'], target['path'], gltf.accessor(sampler['input']).ravel(), gltf.accessor(sampler['output'])))
+        duration = float(max(times[-1] for _, _, times, _ in tracks))
+        clips[name] = [len(position_frames), count, round(duration, 6)]
+        times_to_bake = np.linspace(0, duration, count)
+        if name != 'Death':
+            times_to_bake[-1] = 0
+        for time in times_to_bake:
+            overrides = {}
+            for node, path, times, values in tracks:
+                overrides.setdefault(node, {})[path] = sample_track(times, values, time, path == 'rotation')
+            matrices = gltf.pose(overrides)
+            parts = list(gltf.parts(matrices))
+            positions, normals = [p[1] for p in parts], [p[2] for p in parts]
+            if add_horns:
+                p, n = pronghorn_horns(gltf, matrices)
+                positions.append(p)
+                normals.append(n)
+            p = np.concatenate(positions) - anchor
+            if name == 'Death':
+                # The simulation owns the carcass location. Keep the fall above its ground height.
+                low, high = p.min(axis=0), p.max(axis=0)
+                p[:, 0] -= (low[0] + high[0]) / 2
+                p[:, 1] -= low[1]
+            p = np.rint(p * (16384 / scale))
+            n = np.rint(np.concatenate(normals) * 127).astype('i1')
+            if not np.isfinite(p).all() or np.max(np.abs(p)) > 32767:
+                raise ValueError(f'Invalid coordinates in {name}')
+            position_frames.append(p.astype('<i2'))
+            normal_frames.append(n)
+
+    def unique_tracks(frames):
+        samples = np.stack(frames)
+        tracks = samples.transpose(1, 0, 2).reshape(samples.shape[1], -1)
+        _, keep, lookup = np.unique(tracks, axis=0, return_index=True, return_inverse=True)
+        return samples[:, keep], lookup
+
+    # UV and material seams often duplicate positions, but their normals can differ.
+    positions, pos_lookup = unique_tracks(position_frames)
+    normals, normal_lookup = unique_tracks(normal_frames)
+    lookup = np.column_stack((pos_lookup, normal_lookup)).astype('<u2')
+    pos_deltas = np.diff(positions, axis=0, prepend=np.zeros_like(positions[:1])).astype('<i2')
+    normal_deltas = np.diff(normals, axis=0, prepend=np.zeros_like(normals[:1]))
+    packed = gzip.compress(lookup.tobytes() + pos_deltas.tobytes() + normal_deltas.tobytes(), mtime=0)
+    return [clips, positions.shape[1], normals.shape[1], base64.b64encode(packed).decode()]
+
+
 def simplify(p, n, color, joint, indices, scale, budget):
     if len(indices) <= budget * 3:
         return p, n, color, joint, indices
@@ -258,7 +363,12 @@ def simplify(p, n, color, joint, indices, scale, budget):
 
 def convert(item):
     key, url = item
-    parts = list(Gltf(url).parts())
+    gltf = Gltf(url)
+    parts = list(gltf.parts())
+    if key == 'doe':
+        p, n = pronghorn_horns(gltf, gltf.world)
+        color = np.tile(np.array([0x38, 0x2c, 0x22], dtype='u1'), (len(p), 1))
+        parts.append(('Horns', p, n, color, np.full(len(p), 255), np.arange(len(p)), *parts[-1][-2:]))
     if key in ('captain', 'henry', 'anne'):
         parts = [part for part in parts if part[0] == parts[0][0]]
     vertices = np.concatenate([part[1] for part in parts])
@@ -284,7 +394,10 @@ def convert(item):
     joints = [[name, *((np.asarray(point) - anchor) / scale).round(5).tolist()]
               for name, point in zip(joint_names, joint_points)]
     print(f'{key}: {sum(group[1] for group in groups) // 3} triangles')
-    return key, [offset, base64.b64encode(blob).decode(), groups, joints]
+    model = [offset, base64.b64encode(blob).decode(), groups, joints]
+    if key in ('doe', 'stag'):
+        model.append(deer_motion(gltf, anchor, scale, key == 'doe'))
+    return key, model
 
 
 def main():

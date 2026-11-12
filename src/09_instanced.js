@@ -14,9 +14,9 @@ class UnitInstancer {
     const iAnim = new THREE.InstancedBufferAttribute(new Float32Array(cap * 4), 4);
     iTeam.setUsage(THREE.DynamicDrawUsage); iAnim.setUsage(THREE.DynamicDrawUsage);
     g.setAttribute('iTeam', iTeam); g.setAttribute('iAnim', iAnim);
-    const mesh = new THREE.InstancedMesh(g, modelMaterial('unit'), cap);
+    const mesh = new THREE.InstancedMesh(g, model.material || modelMaterial('unit'), cap);
     mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    mesh.customDepthMaterial = depthMaterial('unit');
+    mesh.customDepthMaterial = model.depth || depthMaterial('unit');
     mesh.castShadow = true; mesh.receiveShadow = true; mesh.frustumCulled = false;
     mesh.count = 0;
     this.scene.add(mesh);
@@ -227,7 +227,7 @@ function renderIcons(playerColorHex, civ) {
     g.setIndex(model.geo.index);
     g.setAttribute('iTeam', new THREE.InstancedBufferAttribute(new Float32Array([team.r, team.g, team.b]), 3));
     g.setAttribute('iAnim', new THREE.InstancedBufferAttribute(new Float32Array([0, 0.5, 0, model.style + 0.3]), 4));
-    const mesh = new THREE.InstancedMesh(g, modelMaterial('unit'), 1);
+    const mesh = new THREE.InstancedMesh(g, model.material || modelMaterial('unit'), 1);
     mesh.setMatrixAt(0, m4.identity()); mesh.frustumCulled = false;
     const human = !def.tags.has('cavalry') && !def.tags.has('wagon') && !def.tags.has('artillery') && !def.tags.has('animal');
     snap('u:' + k, mesh, human ? 0.62 : 0.78, -0.62, human ? 0.22 : 0.4, human ? 0.6 : 0.5);

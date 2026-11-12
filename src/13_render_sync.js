@@ -214,19 +214,22 @@ const RS = {
       const h = angleLerp(u.ph, u.heading, alpha);
       let y = g.heightAt(x, z);
       const def = u.def;
-      let anim = u.anim, at = u.animT;
+      const deerClips = deerMotionClips(def.model);
+      let anim = u.anim;
       _e2.set(0, h, 0, 'YXZ');
       if (!u.alive || u.ko) {
-        const t = Math.min(1, (u.ko ? u.koT : u.deathT) / 0.7);
-        const fall = t * t * 1.5;
-        const side = def.tags.has('cavalry') || def.tags.has('animal') || def.tags.has('wagon') || def.tags.has('artillery');
-        if (side) _e2.set(0, h, fall * (def.tags.has('artillery') ? 0.25 : 1), 'YXZ');
-        else _e2.set(-fall, h, 0, 'YXZ');
+        if (!deerClips) {
+          const t = Math.min(1, (u.ko ? u.koT : u.deathT) / 0.7);
+          const fall = t * t * 1.5;
+          const side = def.tags.has('cavalry') || def.tags.has('animal') || def.tags.has('wagon') || def.tags.has('artillery');
+          if (side) _e2.set(0, h, fall * (def.tags.has('artillery') ? 0.25 : 1), 'YXZ');
+          else _e2.set(-fall, h, 0, 'YXZ');
+          if (side && !def.tags.has('artillery')) y += t * 0.15;
+        }
         anim = ANIM.DEAD;
         let sinkT = u.deathT - 8;
         if (u.carcass && u.carcass.alive) sinkT = -1;
         if (!u.ko && sinkT > 0) y -= sinkT * 0.35;
-        if (side && !def.tags.has('artillery')) y += t * 0.15;
       }
       _q2.setFromEuler(_e2);
       _p2.set(x, y, z); _s2.set(UNIT_SCALE, UNIT_SCALE, UNIT_SCALE);
@@ -235,7 +238,8 @@ const RS = {
       if (u.moving && dt > 0 && (def.tags.has('cavalry') || def.tags.has('wagon') || def.tags.has('artillery') || def.tags.has('trade') || def.key === 'bison') && Math.random() < dt * 6) {
         FX.smoke.emit(x - Math.sin(h) * 0.9 + rnd(0.4), y + 0.15, z - Math.cos(h) * 0.9 + rnd(0.4), rnd(0.3), 0.35, rnd(0.3), 1.3, 0.6, 1.9, DUST[0], DUST[1], DUST[2], 0.32, 0.6, 0);
       }
-      UIi.push(def.model, _m, team, anim, at, u.walkPh, u.rnd);
+      const phase = deerClips ? deerMotionFrame(deerClips, u, alpha) : u.walkPh;
+      UIi.push(def.model, _m, team, anim, u.animT, phase, u.rnd);
       // selection ring + screen position for picking
       if (u.alive && !u.ko) {
         proj.set(x, y + (def.height || 1.8) * 0.5 * UNIT_SCALE, z).project(cam);

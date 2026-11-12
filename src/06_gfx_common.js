@@ -131,24 +131,28 @@ void animApply(inout vec3 p, inout vec3 n){
 `;
 
 // patch a MeshStandardMaterial / MeshLambertMaterial
-// opts: { anim, team, vmat, wind (amplitude), fow (default true) }
+// opts: { anim, motion, team, vmat, wind (amplitude), fow (default true) }
 function patchMaterial(mat, opts = {}) {
   const fow = opts.fow !== false;
-  const key = ['p', opts.anim ? 'a' : '', opts.team ? 't' : '', opts.vmat ? 'v' : '', opts.wind ? 'w' + opts.wind : '', fow ? 'f' : ''].join('');
+  const key = ['p', opts.motion ? 'm' : opts.anim ? 'a' : '', opts.team ? 't' : '', opts.vmat ? 'v' : '', opts.wind ? 'w' + opts.wind : '', fow ? 'f' : ''].join('');
   mat.customProgramCacheKey = () => key;
   mat.onBeforeCompile = (sh) => {
     sh.uniforms.uFow = U.uFow; sh.uniforms.uMapSize = U.uMapSize; sh.uniforms.uTime = U.uTime;
+    if (opts.motion) Object.assign(sh.uniforms, opts.motion);
     let vs = sh.vertexShader, fs = sh.fragmentShader;
     let vpre = 'varying vec3 vFowPos;\nuniform float uTime;\n';
-    if (opts.anim) vpre += ANIM_GLSL;
+    if (opts.motion) vpre += DEER_MOTION_GLSL;
+    else if (opts.anim) vpre += ANIM_GLSL;
     if (opts.team) vpre += 'attribute float aTeam;\nattribute vec3 iTeam;\nvarying float vTeam;\nvarying vec3 vTeamCol;\n';
     if (opts.vmat) vpre += 'attribute vec2 aMat;\nvarying vec2 vMat;\n';
     vs = vs.replace('#include <common>', '#include <common>\n' + vpre);
     let bn = 'vec3 objectNormal = vec3( normal );\n';
-    if (opts.anim) bn += '{ vec3 _p = position; animApply(_p, objectNormal); }\n';
+    if (opts.motion) bn += 'objectNormal = deerNormal();\n';
+    else if (opts.anim) bn += '{ vec3 _p = position; animApply(_p, objectNormal); }\n';
     vs = vs.replace('#include <beginnormal_vertex>', bn);
     let bv = 'vec3 transformed = vec3( position );\n';
-    if (opts.anim) bv += '{ vec3 _n = vec3(0.0,1.0,0.0); animApply(transformed, _n); }\n';
+    if (opts.motion) bv += 'transformed = deerPosition();\n';
+    else if (opts.anim) bv += '{ vec3 _n = vec3(0.0,1.0,0.0); animApply(transformed, _n); }\n';
     if (opts.wind) {
       bv += `{
         vec3 iw = vec3(0.0);
@@ -199,15 +203,17 @@ function patchMaterial(mat, opts = {}) {
 // depth material for animated / wind-swayed instanced meshes (so shadows move too)
 function makeDepthMaterial(opts) {
   const m = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
-  const key = 'd' + (opts.anim ? 'a' : '') + (opts.wind ? 'w' + opts.wind : '');
+  const key = 'd' + (opts.motion ? 'm' : opts.anim ? 'a' : '') + (opts.wind ? 'w' + opts.wind : '');
   m.customProgramCacheKey = () => key;
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uTime = U.uTime;
+    if (opts.motion) Object.assign(sh.uniforms, opts.motion);
     let vs = sh.vertexShader;
-    let pre = 'uniform float uTime;\n' + (opts.anim ? ANIM_GLSL : '');
+    const pre = 'uniform float uTime;\n' + (opts.motion ? DEER_MOTION_GLSL : opts.anim ? ANIM_GLSL : '');
     vs = vs.replace('#include <common>', '#include <common>\n' + pre);
     let bv = 'vec3 transformed = vec3( position );\n';
-    if (opts.anim) bv += '{ vec3 _n = vec3(0.0,1.0,0.0); animApply(transformed, _n); }\n';
+    if (opts.motion) bv += 'transformed = deerPosition();\n';
+    else if (opts.anim) bv += '{ vec3 _n = vec3(0.0,1.0,0.0); animApply(transformed, _n); }\n';
     if (opts.wind) bv += `{
         vec3 iw = vec3(0.0);
         #ifdef USE_INSTANCING

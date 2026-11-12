@@ -99,25 +99,25 @@ const ANIMAL_ART = {
 
 function importedAnimal(b, key) {
   const spec = ANIMAL_ART[key];
-  if (!spec) return false;
+  if (!spec) return null;
   const [model, h, d] = spec;
+  const color = key === 'caribou' ? (hex) => srgbMix(hex, 0x9d9d8d, 0.3) : undefined;
+  if (ART_MODELS[model][4]) {
+    if (deerMotionClips(key)) return animatedDeer(b, key, model, [0, h, d], color);
+    artPart(b, model, { fit: [0, h, d], color });
+    return { geo: b.build(), style: 1 };
+  }
   const side = (p) => p.x > 0 ? 1 : -1;
   const unriggedLeg = (p) => {
     if (p.y > h * 0.43 || Math.abs(p.z) < d * 0.15) return null;
     const front = p.z > 0;
     return { bone: (front ? 7 : 9) + (side(p) > 0 ? 0 : 1), pivot: [side(p) * d * 0.095, h * 0.41, (front ? 1 : -1) * d * 0.27] };
   };
-  const body = artPart(b, model, {
+  artPart(b, model, {
     fit: [0, h, d], stretch: key === 'bison' ? [1.16, 1, 1] : [1, 1, 1], rig: animalRig,
-    vertexRig: key === 'bison' || key === 'bear' ? unriggedLeg : undefined, bone: 13,
-    color: key === 'caribou' ? (hex) => srgbMix(hex, 0x9d9d8d, 0.3) : undefined,
+    vertexRig: key === 'bison' || key === 'bear' ? unriggedLeg : undefined, bone: 13, color,
   });
-  if (key === 'pronghorn') {
-    const head = body.joints.get('Head');
-    for (const sx of [-1, 1]) b.cone(0.045, 0.24, 5, head[0] + sx * 0.095, head[1] + 0.12, head[2] - 0.015,
-      0x382c22, { rz: sx * -0.28, bone: 11, pivot: body.joints.get('Neck1') });
-  }
-  return true;
+  return { geo: b.build(), style: 1 };
 }
 
 function importedHorse(b, o) {

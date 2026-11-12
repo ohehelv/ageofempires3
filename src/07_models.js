@@ -246,7 +246,8 @@ const UNIT_MODELS = {};
 function unitModel(key) {
   if (UNIT_MODELS[key]) return UNIT_MODELS[key];
   const b = new PartBuilder();
-  if (importedAnimal(b, key)) return UNIT_MODELS[key] = { geo: b.build(), style: 1 };
+  const animal = importedAnimal(b, key);
+  if (animal) return UNIT_MODELS[key] = animal;
   let style = 0;
   switch (key) {
     case 'settler': {
