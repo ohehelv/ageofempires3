@@ -305,15 +305,18 @@ const RS = {
         if (!seen) continue;
         o = b.gfx = { group: new THREE.Group() };
         const geo = getBuildingGeo(b.key, g.players[b.owner].civKey, g.players[b.owner].color);
-        o.main = new THREE.Mesh(geo.main, modelMaterial('static'));
+        o.main = createBuildingMesh(geo, 'static');
         o.main.castShadow = true; o.main.receiveShadow = true;
         o.group.add(o.main);
         if (geo.blades) {
-          if (!geo.bladesC) { geo.bladesC = geo.blades.clone(); geo.bladesC.translate(0, -6.6, -2.4); }
+          const [x, y, z] = geo.bladePivot || [0, 6.6, 2.4];
+          if (!geo.bladesC) { geo.bladesC = geo.blades.clone(); geo.bladesC.translate(-x, -y, -z); }
           o.blades = new THREE.Mesh(geo.bladesC, modelMaterial('static'));
-          o.blades.position.set(0, 6.6, 2.4); o.blades.castShadow = true;
+          o.blades.position.set(x, y, z); o.blades.castShadow = true;
+          o.bladeAxis = geo.bladeAxis || 'z';
           o.main.add(o.blades);
         }
+        o.chimney = geo.chimney === undefined ? CHIMNEYS[b.key] : geo.chimney;
         o.scaffold = new THREE.Mesh(scaffoldGeo(b.size, b.def.height), modelMaterial('static'));
         o.scaffold.castShadow = true;
         o.group.add(o.scaffold);
@@ -340,7 +343,7 @@ const RS = {
       } else if (o.scaffold.visible) {
         o.main.position.y = 0; o.scaffold.visible = false;
       }
-      if (o.blades && b.built) o.blades.rotation.z += dt * (b.gatherers() > 0 ? 1.4 : 0.35);
+      if (o.blades && b.built) o.blades.rotation[o.bladeAxis] += dt * (b.gatherers() > 0 ? 1.4 : 0.35);
       if (!this.inView(b.x, b.z) || !(fr || g.isVisibleW(b.x, b.z))) continue;
       // damage fire & chimney smoke
       const hpf = b.hp / b.maxHp;
@@ -355,7 +358,7 @@ const RS = {
       o.smokeT -= dt;
       if (b.built && o.smokeT <= 0) {
         o.smokeT = 0.45 + Math.random() * 0.5;
-        const ch = CHIMNEYS[b.key];
+        const ch = o.chimney;
         if (ch) FX.smoke.emit(b.x + ch[0] + rnd(0.1), g.heightAt(b.x, b.z) + ch[1], b.z + ch[2] + rnd(0.1), 0.4, 0.9, 0.2, 5, 0.6, 3.2, 0.82, 0.8, 0.78, 0.32, 0.7, -0.05);
       }
     }
@@ -388,20 +391,19 @@ const RS = {
   setGhost(key, civ, color, cx0, cz0, ok) {
     const g = this.game;
     if (!key) { this.ghost.visible = false; this.ghostPlate.visible = false; this.ghostKey = null; return; }
+    const material = ok ? this.ghostMatOk : this.ghostMatBad;
     if (this.ghostKey !== key) {
       this.ghost.clear();
       const geo = getBuildingGeo(key, civ, color);
-      this.ghostMesh = new THREE.Mesh(geo.main, ok ? this.ghostMatOk : this.ghostMatBad);
-      this.ghost.add(this.ghostMesh);
-      if (geo.blades) { const bl = new THREE.Mesh(geo.blades, ok ? this.ghostMatOk : this.ghostMatBad); this.ghost.add(bl); this.ghostBlades = bl; } else this.ghostBlades = null;
+      this.ghost.add(createBuildingMesh(geo, 'staticNoFow', material));
+      if (geo.blades) this.ghost.add(new THREE.Mesh(geo.blades, material));
       this.ghostKey = key;
     }
     const def = BUILDINGS[key];
     const x = (cx0 + def.cells / 2) * CELL, z = (cz0 + def.cells / 2) * CELL;
     this.ghost.visible = true;
     this.ghost.position.set(x, g.heightAt(x, z), z);
-    this.ghostMesh.material = ok ? this.ghostMatOk : this.ghostMatBad;
-    if (this.ghostBlades) this.ghostBlades.material = this.ghostMesh.material;
+    this.ghost.traverse((object) => { if (object.isMesh) object.material = material; });
     // footprint plate conformed to terrain
     const pl = this.ghostPlate, pos = pl.geometry.attributes.position;
     const s = def.size;

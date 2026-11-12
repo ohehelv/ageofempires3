@@ -12,6 +12,7 @@ const TEAM = 0xffffff;
 // ------------------------------------------------------------------ humans
 // returns hand/shoulder pivots. o.rider -> bones +20 and seated legs
 function buildHuman(b, o) {
+  if (ART_MODELS.farmer) return importedHuman(b, o);
   const R = o.rider ? 20 : 0;
   const oy = o.oy || 0;
   const hipY = 0.86 + oy, shY = 1.42 + oy, shX = 0.26;
@@ -124,6 +125,7 @@ function weaponR(b, h, kind) {
   const R = h.R, bone = 5 + R, pv = h.handR, pv2 = h.shR;
   const x = pv[0] + 0.02, y = pv[1], z = pv[2] + 0.04;
   const o = (extra) => Object.assign({ bone, pivot: pv, pivot2: pv2 }, extra || {});
+  if (importedWeapon(b, kind, x, y, z, o())) return;
   switch (kind) {
     case 'musket':
       b.box(0.06, 0.5, 0.09, x, y - 0.3, z, COL.wood, o());
@@ -178,6 +180,7 @@ function weaponL(b, h, kind) {
   const R = h.R, bone = 6 + R, pv = h.handL, pv2 = h.shL;
   const x = pv[0] - 0.02, y = pv[1], z = pv[2] + 0.04;
   const o = (extra) => Object.assign({ bone, pivot: pv, pivot2: pv2 }, extra || {});
+  if (importedWeapon(b, kind, x, y, z, o())) return;
   if (kind === 'longbow') {
     b.box(0.035, 0.75, 0.04, x, y + 0.36, z + 0.06, COL.wood, o({ rx: -0.18 }));
     b.box(0.035, 0.75, 0.04, x, y - 0.36, z + 0.06, COL.wood, o({ rx: 0.18 }));
@@ -226,6 +229,7 @@ function buildQuad(b, s) {
 }
 
 function buildHorse(b, o = {}) {
+  if (ART_MODELS.horse) { importedHorse(b, o); return; }
   buildQuad(b, {
     len: 1.55, h: 1.25, w: 0.5, bh: 0.58, col: o.col || 0x6b4428, belly: null, neckLen: 0.85, neckW: 0.3, neckTilt: 0.62,
     headW: 0.24, headH: 0.28, headL: 0.55, headTilt: 1.1, muzzle: 0x2b211b, ears: 0.12, tail: 0.75, tailCol: 0x221a15, mane: 0x221a15,
@@ -242,6 +246,7 @@ const UNIT_MODELS = {};
 function unitModel(key) {
   if (UNIT_MODELS[key]) return UNIT_MODELS[key];
   const b = new PartBuilder();
+  if (importedAnimal(b, key)) return UNIT_MODELS[key] = { geo: b.build(), style: 1 };
   let style = 0;
   switch (key) {
     case 'settler': {
@@ -359,6 +364,7 @@ function unitModel(key) {
 }
 
 function artilleryModel(b, key) {
+  if (ART_MODELS.cannon) { importedArtillery(b, key); return; }
   const wheelR = key === 'mortar' ? 0 : 0.55;
   if (key !== 'mortar') {
     // carriage cheeks + trail
@@ -391,6 +397,7 @@ function artilleryModel(b, key) {
 }
 
 function wagonModel(b, team) {
+  if (ART_MODELS.cart) { importedWagon(b, team); return; }
   // horse pulling in front
   const hb = new PartBuilder();
   buildHorse(hb, { col: 0x6a4a30 });
@@ -709,6 +716,11 @@ function buildingModel(key, civ) {
 function getBuildingGeo(key, civ, colorHex) {
   const id = key + '|' + civ + '|' + colorHex;
   if (BUILDING_BUILDERS[id]) return BUILDING_BUILDERS[id];
+  if (key === 'outpost' && outpostModel) {
+    return BUILDING_BUILDERS[id] = { ...outpostModel, flag: outpostModel.flag.build(colorHex) };
+  }
+  const imported = importedBuilding(key, civ, colorHex);
+  if (imported) return BUILDING_BUILDERS[id] = imported;
   const b = buildingModel(key, civ);
   const res = { main: (key === 'mill' ? b.without(1) : b).build(colorHex), blades: key === 'mill' ? b.buildTag(1, colorHex) : null };
   BUILDING_BUILDERS[id] = res;
@@ -739,6 +751,8 @@ function scaffoldGeo(size, height) {
 const TREE_GEOS = {};
 function treeGeo(species) {
   if (TREE_GEOS[species]) return TREE_GEOS[species];
+  const imported = importedTree(species);
+  if (imported) return TREE_GEOS[species] = imported;
   const b = new PartBuilder();
   const tr = { color: 0x5a4030 };
   switch (species) {
@@ -792,6 +806,8 @@ function treeGeo(species) {
 const PROP_GEOS = {};
 function propGeo(kind) {
   if (PROP_GEOS[kind]) return PROP_GEOS[kind];
+  const imported = importedProp(kind);
+  if (imported) return PROP_GEOS[kind] = imported;
   const b = new PartBuilder();
   switch (kind) {
     case 'mine': {

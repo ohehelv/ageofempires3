@@ -162,10 +162,10 @@ function buildTerrain(map) {
           vec3 c = grass;
           c = mix(c, dirt, smoothstep(0.25, 0.75, clamp(sp.r * (0.7 + 0.6 * d2.r), 0.0, 1.0)));
           c = mix(c, floorC, smoothstep(0.08, 0.85, sp.g));
-          float rows = sin((vWPos.x + vWPos.z) * 2.3) * 0.5 + 0.5;
-          vec3 field = mix(cField * 0.75, cField * 1.15, rows);
-          field = mix(field, vec3(0.16, 0.27, 0.06), smoothstep(0.55, 0.95, rows) * (0.5 + 0.5 * d1.r));
-          c = mix(c, field, sp.a);
+          float rows = sin((wp.x + wp.y) * 2.7 + (d2.r - 0.5) * 1.5) * 0.5 + 0.5;
+          vec3 field = cField * (0.78 + 0.24 * d1.r + 0.15 * rows);
+          field = mix(field, grass * 0.62, smoothstep(0.58, 0.93, rows) * (0.28 + 0.2 * d1.r));
+          c = mix(c, field, sp.a * (0.82 + 0.18 * d2.b));
           c = mix(c, road, smoothstep(0.12, 0.55, sp.b * (0.7 + 0.55 * d1.r)));
           float sandW = 1.0 - smoothstep(0.1, 0.55, vWPos.y + (d1.r - 0.5) * 0.3);
           c = mix(c, sand, sandW);
@@ -327,24 +327,23 @@ function buildDecor(map) {
   const heightAt = makeHeightSampler(map);
   GFX.heightAt = heightAt;
   const group = new THREE.Group();
-  // grass geometry with baked biome colours (dark base -> light tip)
+  // Tint leaves to the biome and keep the imported shape and flower detail.
   const mkGrass = (tipHex, flower) => {
     const base = propGeo(flower ? 'flower' : 'grass').clone();
     const pos = base.attributes.position.array, colA = base.attributes.color.array;
     const cBase = linColor(srgbMix(biome.grassB, 0x203010, 0.35)), cTip = linColor(srgbMix(biome.grassA, 0xffffff, 0.12)), cF = linColor(tipHex);
-    const tag = new Float32Array(pos.length / 3);
-    for (let i = 0; i < pos.length / 3; i++) {
-      const y = pos[i * 3 + 1], t = clamp(y / 0.55, 0, 1);
-      let c = { r: lerp(cBase.r, cTip.r, t), g: lerp(cBase.g, cTip.g, t), b: lerp(cBase.b, cTip.b, t) };
-      if (flower && colA[i * 3] > 0.99 && y > 0.3 && Math.abs(pos[i * 3]) < 0.25) {
-        // flower heads are boxes (vertex count > blades) — identify by being part of a box near the top
+    for (let i = 0; i < pos.length; i += 3) {
+      const t = clamp(pos[i + 1] / 0.55, 0, 1);
+      const leaf = colA[i + 1] >= colA[i] * 1.1 && colA[i + 1] >= colA[i + 2];
+      if (flower && !leaf && t > 0.3) {
+        colA[i] = lerp(colA[i], cF.r, 0.45);
+        colA[i + 1] = lerp(colA[i + 1], cF.g, 0.45);
+        colA[i + 2] = lerp(colA[i + 2], cF.b, 0.45);
+      } else {
+        colA[i] = lerp(colA[i], lerp(cBase.r, cTip.r, t), 0.75);
+        colA[i + 1] = lerp(colA[i + 1], lerp(cBase.g, cTip.g, t), 0.75);
+        colA[i + 2] = lerp(colA[i + 2], lerp(cBase.b, cTip.b, t), 0.75);
       }
-      colA[i * 3] = c.r; colA[i * 3 + 1] = c.g; colA[i * 3 + 2] = c.b;
-      tag[i] = 0;
-    }
-    if (flower) { // recolour the last 3 boxes (36 verts each) as flower heads
-      const nv = pos.length / 3;
-      for (let i = nv - 108; i < nv; i++) { colA[i * 3] = cF.r; colA[i * 3 + 1] = cF.g; colA[i * 3 + 2] = cF.b; }
     }
     base.attributes.color.needsUpdate = true;
     return base;

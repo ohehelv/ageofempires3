@@ -9,6 +9,7 @@ class UnitInstancer {
     const model = unitModel(key);
     const g = new THREE.BufferGeometry();
     for (const n in model.geo.attributes) g.setAttribute(n, model.geo.attributes[n]);
+    g.setIndex(model.geo.index);
     const iTeam = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
     const iAnim = new THREE.InstancedBufferAttribute(new Float32Array(cap * 4), 4);
     iTeam.setUsage(THREE.DynamicDrawUsage); iAnim.setUsage(THREE.DynamicDrawUsage);
@@ -216,13 +217,14 @@ function renderIcons(playerColorHex, civ) {
   };
   // units
   const unitKeys = ['settler', 'explorer', 'musketeer', 'pikeman', 'crossbowman', 'longbowman', 'strelet', 'rodelero', 'skirmisher', 'grenadier',
-    'hussar', 'dragoon', 'cuirassier', 'falconet', 'mortar', 'culverin', 'fortWagon', 'tcWagon', 'deer', 'pronghorn', 'caribou', 'bison', 'wolf', 'bear', 'bandit'];
+    'hussar', 'dragoon', 'cuirassier', 'falconet', 'mortar', 'culverin', 'fortWagon', 'tcWagon', 'tradeWagon', 'deer', 'pronghorn', 'caribou', 'bison', 'wolf', 'bear', 'bandit'];
   const m4 = new THREE.Matrix4();
   for (const k of unitKeys) {
     const def = UNITS[k];
     const model = unitModel(def.model);
     const g = new THREE.BufferGeometry();
     for (const n in model.geo.attributes) g.setAttribute(n, model.geo.attributes[n]);
+    g.setIndex(model.geo.index);
     g.setAttribute('iTeam', new THREE.InstancedBufferAttribute(new Float32Array([team.r, team.g, team.b]), 3));
     g.setAttribute('iAnim', new THREE.InstancedBufferAttribute(new Float32Array([0, 0.5, 0, model.style + 0.3]), 4));
     const mesh = new THREE.InstancedMesh(g, modelMaterial('unit'), 1);
@@ -235,7 +237,7 @@ function renderIcons(playerColorHex, civ) {
     const def = BUILDINGS[k];
     const geo = getBuildingGeo(k, civ, playerColorHex);
     const grp = new THREE.Group();
-    grp.add(new THREE.Mesh(geo.main, modelMaterial('staticNoFow')));
+    grp.add(createBuildingMesh(geo, 'staticNoFow'));
     if (geo.blades) grp.add(new THREE.Mesh(geo.blades, modelMaterial('staticNoFow')));
     snap('b:' + k, grp, 0.82, -0.6, 0.5, 0.42);
   }

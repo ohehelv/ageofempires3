@@ -284,8 +284,9 @@ const App = {
   },
 };
 
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
   if (typeof THREE === 'undefined') { document.getElementById('menu-error').hidden = false; return; }
+  await loadOutpostModel();
   App.boot();
 });
 window.__nw = { App, get game() { return App.game; }, Input, UI, Cam, GFX, RS, FX, Sfx };

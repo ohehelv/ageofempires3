@@ -228,7 +228,7 @@ function makeDepthMaterial(opts) {
 const _m4 = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _v3 = new THREE.Vector3(), _s3 = new THREE.Vector3();
 
 class PartBuilder {
-  constructor() { this.P = []; this.Nn = []; this.Cc = []; this.T = []; this.B = []; this.PV = []; this.PV2 = []; this.M = []; this.tag = []; }
+  constructor() { this.P = []; this.Nn = []; this.Cc = []; this.T = []; this.B = []; this.PV = []; this.PV2 = []; this.M = []; this.tag = []; this.indices = null; }
   add(geo, o = {}) {
     let g = geo.index ? geo.toNonIndexed() : geo;
     _e.set(o.rx || 0, o.ry || 0, o.rz || 0, o.order || 'XYZ');
@@ -247,6 +247,7 @@ class PartBuilder {
     const rough = o.rough === undefined ? 0.8 : o.rough, metal = o.metal || 0;
     const nv = p.length / 3;
     for (let i = 0; i < nv; i++) {
+      if (this.indices) this.indices.push(this.P.length / 3);
       this.P.push(p[i * 3], p[i * 3 + 1], p[i * 3 + 2]);
       this.Nn.push(n[i * 3], n[i * 3 + 1], n[i * 3 + 2]);
       let k = 1;
@@ -284,6 +285,7 @@ class PartBuilder {
   // bake: if teamHex given, team-flagged vertices take that colour and no team attribute is emitted
   build(teamHex) {
     const g = new THREE.BufferGeometry();
+    if (this.indices) g.setIndex(this.indices);
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.P, 3));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(this.Nn, 3));
     let C = this.Cc;

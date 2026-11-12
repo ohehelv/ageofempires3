@@ -2,7 +2,7 @@
   "name": "kolonii-novogo-sveta",
   "version": "0.3.0",
   "private": true,
-  "description": "Колонии Нового Света — браузерная 3D-стратегия в реальном времени в духе Age of Empires III (Three.js, без фреймворков и бандлера)",
+  "description": "Колонии Нового Света — браузерная 3D-стратегия в реальном времени в духе Age of Empires III на JavaScript и Three.js",
   "scripts": {
     "build": "node build.mjs",
     "check": "node build.mjs && node --check dist/game.js && node test/sim.cjs 6 2 normal medium sonora 777",
@@ -15,6 +15,7 @@
     "test:soak": "node test/run.cjs soak"
   },
   "devDependencies": {
+    "esbuild": "0.28.2",
     "playwright": "1.56.0",
     "three": "0.149.0"
   }
