@@ -759,36 +759,36 @@ function scaffoldGeo(size, height) {
 // ------------------------------------------------------------------ trees
 const TREE_GEOS = {};
 function treeGeo(species) {
-  if (TREE_GEOS[species]) return TREE_GEOS[species];
-  const imported = importedTree(species);
-  if (imported) return TREE_GEOS[species] = imported;
+  return TREE_GEOS[species] ||= importedTree(species) || simpleTreeGeo(species);
+}
+
+const SIMPLE_TREE_GEOS = {};
+function simpleTreeGeo(species) {
+  if (SIMPLE_TREE_GEOS[species]) return SIMPLE_TREE_GEOS[species];
   const b = new PartBuilder();
-  const tr = { color: 0x5a4030 };
   switch (species) {
     case 'pine': case 'snowpine': case 'spruce': {
       const narrow = species === 'spruce' ? 0.78 : 1;
-      b.cyl(0.13, 0.24, 2.4, 6, 0, 1.2, 0, 0x5b3f2c);
+      b.cyl(0.13, 0.24, 2.4, 5, 0, 1.2, 0, 0x5b3f2c);
       const green = species === 'spruce' ? 0x2a4a3a : 0x2f5a2e;
-      const levels = [[1.8, 3.0, 2.8], [1.45, 2.6, 4.3], [1.05, 2.2, 5.6], [0.6, 1.6, 6.7]];
+      const levels = [[1.8, 3.2, 2.8], [1.35, 2.9, 4.4], [0.9, 2.6, 6.2]];
       for (const [r, h, y] of levels) {
-        b.cone(r * narrow, h, 7, 0, y, 0, green, { vary: 0.12, ry: y });
-        if (species === 'snowpine') b.cone(r * narrow * 0.75, h * 0.42, 7, 0, y + h * 0.3, 0, 0xf2f6f8, { ry: y + 0.3, vary: 0.03 });
+        b.cone(r * narrow, h, 5, 0, y, 0, green, { vary: 0.12, ry: y });
+        if (species === 'snowpine') b.cone(r * narrow * 0.75, h * 0.42, 5, 0, y + h * 0.3, 0, 0xf2f6f8, { ry: y, vary: 0.03 });
       }
       break;
     }
     case 'oak': case 'cottonwood': {
       const tall = species === 'cottonwood' ? 1.25 : 1;
       b.cyl(0.2, 0.34, 3.0 * tall, 6, 0, 1.5 * tall, 0, 0x5a4232);
-      b.cyl(0.08, 0.12, 1.4, 5, 0.5, 2.7 * tall, 0.1, 0x5a4232, { rz: -0.8 });
       const g = species === 'cottonwood' ? 0x6f8a3c : 0x4c7a30;
-      const blobs = [[0, 4.2, 0, 1.75], [1.1, 3.8, 0.5, 1.25], [-1.0, 3.9, -0.4, 1.3], [0.3, 3.7, -1.0, 1.2], [-0.4, 3.6, 1.0, 1.15], [0.2, 5.1, 0.1, 1.2]];
+      const blobs = [[0, 4.5, 0, 1.9], [1.2, 3.8, 0.65, 1.35], [-1.15, 3.9, -0.6, 1.4]];
       for (const [x, y, z, r] of blobs) b.ico(r, x, y * tall, z, g, { vary: 0.14 });
       break;
     }
     case 'birch': {
       b.cyl(0.12, 0.18, 4.4, 6, 0, 2.2, 0, 0xe8e4da);
-      for (let i = 0; i < 5; i++) b.box(0.26, 0.06, 0.26, 0, 0.6 + i * 0.75, 0, 0x2b2622);
-      for (const [x, y, z, r] of [[0, 4.6, 0, 1.2], [0.6, 4.0, 0.3, 0.9], [-0.5, 4.1, -0.3, 0.95], [0.1, 5.4, 0, 0.8]]) b.ico(r, x, y, z, 0x8aa443, { vary: 0.14, sy: 1.25 });
+      for (const [x, y, z, r] of [[0, 4.85, 0, 1.3], [0.65, 4.05, 0.3, 0.95], [-0.65, 4.1, -0.3, 1]]) b.ico(r, x, y, z, 0x8aa443, { vary: 0.14, sy: 1.25 });
       break;
     }
     case 'mesquite': {
@@ -800,15 +800,14 @@ function treeGeo(species) {
     case 'saguaro': {
       const g = 0x5f7d45;
       b.cyl(0.32, 0.36, 5.2, 8, 0, 2.6, 0, g, { vary: 0.08 });
-      b.sphere(0.32, 0, 5.2, 0, g, { ws: 8, hs: 4 });
-      b.cyl(0.2, 0.22, 1.0, 7, 0.65, 2.1, 0, g, { rz: PI / 2 }); b.cyl(0.2, 0.2, 1.6, 7, 1.1, 2.9, 0, g); b.sphere(0.2, 1.1, 3.7, 0, g);
-      b.cyl(0.18, 0.2, 0.8, 7, -0.55, 2.9, 0, g, { rz: PI / 2 }); b.cyl(0.18, 0.18, 1.1, 7, -0.9, 3.4, 0, g); b.sphere(0.18, -0.9, 3.95, 0, g);
+      b.cyl(0.2, 0.22, 1.0, 5, 0.65, 2.1, 0, g, { rz: PI / 2 }); b.cyl(0.12, 0.2, 1.6, 5, 1.1, 2.9, 0, g);
+      b.cyl(0.18, 0.2, 0.8, 5, -0.55, 2.9, 0, g, { rz: PI / 2 }); b.cyl(0.12, 0.18, 1.1, 5, -0.9, 3.4, 0, g);
       break;
     }
     default: b.cyl(0.2, 0.3, 3, 6, 0, 1.5, 0, 0x5a4030);
   }
-  TREE_GEOS[species] = b.build(0xffffff);
-  return TREE_GEOS[species];
+  const geo = b.build(0xffffff);
+  return SIMPLE_TREE_GEOS[species] = geo;
 }
 
 // ------------------------------------------------------------------ resources & props

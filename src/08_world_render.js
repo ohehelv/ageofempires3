@@ -3,7 +3,7 @@
 // resources, decor, fog-of-war texture
 // ---------------------------------------------------------------------------
 const GFX = {
-  renderer: null, scene: null, camera: null, sun: null, hemi: null, detail: null, quality: 'high',
+  renderer: null, scene: null, camera: null, sun: null, hemi: null, detail: null, quality: 'medium',
   terrain: null, water: null, fowTex: null, fowCur: null, map: null,
   treeIndex: null, // tree id -> {mesh, i}
   chunkSize: 48,
@@ -18,6 +18,9 @@ function initRenderer(canvas) {
   r.shadowMap.enabled = true;
   r.shadowMap.type = THREE.PCFSoftShadowMap;
   r.shadowMap.autoUpdate = true;
+  const gl = r.getContext();
+  const debug = gl.getExtension('WEBGL_debug_renderer_info');
+  GFX.softwareRenderer = !!debug && /swiftshader|llvmpipe|softpipe|software rasterizer|microsoft basic render/i.test(gl.getParameter(debug.UNMASKED_RENDERER_WEBGL));
   GFX.renderer = r;
   GFX.camera = new THREE.PerspectiveCamera(38, 1, 1, 1500);
   GFX.detail = makeDetailTexture();
@@ -29,15 +32,44 @@ function setQuality(q) {
   const r = GFX.renderer;
   if (!r) return;
   const pr = window.devicePixelRatio || 1;
-  r.setPixelRatio(q === 'low' ? Math.min(pr, 1) : Math.min(pr, q === 'high' ? 2 : 1.5));
+  const pixelRatio = Math.min(pr, q === 'low' ? (GFX.softwareRenderer ? 0.65 : 0.85) : q === 'medium' ? 1.25 : 1.75);
+  if (r.getPixelRatio() !== pixelRatio) r.setPixelRatio(pixelRatio);
+  r.shadowMap.enabled = q !== 'low';
   if (GFX.sun) {
-    const s = q === 'low' ? 1024 : q === 'medium' ? 2048 : 3072;
-    if (GFX.sun.shadow.mapSize.x !== s) {
-      GFX.sun.shadow.mapSize.set(s, s);
-      if (GFX.sun.shadow.map) { GFX.sun.shadow.map.dispose(); GFX.sun.shadow.map = null; }
+    GFX.sun.castShadow = r.shadowMap.enabled;
+    const shadow = GFX.sun.shadow;
+    const s = q === 'high' ? 2048 : 1024;
+    if (shadow.map && (q === 'low' || shadow.mapSize.x !== s)) {
+      shadow.map.dispose();
+      shadow.map = null;
     }
+    shadow.mapSize.set(s, s);
   }
+  if (!GFX.scene) return;
+  if (q !== 'low') {
+    GFX.environment ||= buildEnvironment(GFX.map.biome);
+    if (!GFX.decorGroup) buildDecor(GFX.map);
+  }
+  GFX.scene.environment = q === 'low' ? null : GFX.environment.texture;
   if (GFX.decorGroup) GFX.decorGroup.visible = q !== 'low';
+}
+
+function buildEnvironment(biome) {
+  const pmrem = new THREE.PMREMGenerator(GFX.renderer);
+  const skyScene = new THREE.Scene();
+  const skyMat = new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false,
+    uniforms: { top: { value: linColor(biome.sky) }, hor: { value: linColor(biome.horizon) }, bot: { value: linColor(biome.hemiGround) } },
+    vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+    fragmentShader: 'uniform vec3 top; uniform vec3 hor; uniform vec3 bot; varying vec3 vP; void main(){ float y = vP.y; vec3 c = y > 0.0 ? mix(hor, top, pow(y, 0.6)) : mix(hor, bot, pow(-y, 0.4)); gl_FragColor = vec4(c, 1.0); }',
+  });
+  const skyGeo = new THREE.SphereGeometry(10, 24, 12);
+  skyScene.add(new THREE.Mesh(skyGeo, skyMat));
+  const environment = pmrem.fromScene(skyScene, 0.02);
+  pmrem.dispose();
+  skyGeo.dispose();
+  skyMat.dispose();
+  return environment;
 }
 
 function buildScene(map) {
@@ -49,26 +81,10 @@ function buildScene(map) {
   scene.fog = new THREE.Fog(new THREE.Color(biome.fog).convertSRGBToLinear(), 150, 520);
   U.uMapSize.value = map.size;
 
-  // environment (IBL) from a gradient sky
-  const pmrem = new THREE.PMREMGenerator(GFX.renderer);
-  const skyScene = new THREE.Scene();
-  const skyMat = new THREE.ShaderMaterial({
-    side: THREE.BackSide, depthWrite: false,
-    uniforms: { top: { value: linColor(biome.sky) }, hor: { value: linColor(biome.horizon) }, bot: { value: linColor(biome.hemiGround) } },
-    vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-    fragmentShader: 'uniform vec3 top; uniform vec3 hor; uniform vec3 bot; varying vec3 vP; void main(){ float y = vP.y; vec3 c = y > 0.0 ? mix(hor, top, pow(y, 0.6)) : mix(hor, bot, pow(-y, 0.4)); gl_FragColor = vec4(c, 1.0); }',
-  });
-  skyScene.add(new THREE.Mesh(new THREE.SphereGeometry(10, 24, 12), skyMat));
-  const envRT = pmrem.fromScene(skyScene, 0.02);
-  scene.environment = envRT.texture;
-  pmrem.dispose();
-
   // lights
   const hemi = new THREE.HemisphereLight(linColor(biome.hemiSky), linColor(biome.hemiGround), biome.hemiI * 0.6);
   scene.add(hemi); GFX.hemi = hemi;
   const sun = new THREE.DirectionalLight(linColor(biome.sun), biome.sunI * 0.85);
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(3072, 3072);
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.04;
   sun.shadow.camera.near = 10; sun.shadow.camera.far = 420;
@@ -84,11 +100,12 @@ function buildScene(map) {
   fowTex.wrapS = fowTex.wrapT = THREE.ClampToEdgeWrapping;
   fowTex.needsUpdate = true;
   GFX.fowTex = fowTex; GFX.fowCur = new Float32Array(N * N);
+  GFX.fowRevealed = false;
   U.uFow.value = fowTex;
 
+  GFX.heightAt = makeHeightSampler(map);
   buildTerrain(map);
   buildWater(map);
-  buildDecor(map);
   setQuality(GFX.quality);
 }
 
@@ -281,8 +298,16 @@ function buildWater(map) {
 }
 
 // ------------------------------------------------------------------ chunked instancing helper
+function chunkGeometry(source, bounds = null) {
+  const geo = new THREE.BufferGeometry();
+  for (const name in source.attributes) geo.setAttribute(name, source.attributes[name]);
+  geo.setIndex(source.index);
+  geo.boundingSphere = bounds;
+  return geo;
+}
+
 function chunkedInstances(items, geo, material, opts = {}) {
-  // items: [{x, y, z, rot, s, color?}] ; returns Map chunkKey -> mesh, and per-item {mesh, i}
+  // items: [{x, y, z, rot, s, color?}] ; returns group and per-item {mesh, i}
   const cs = GFX.chunkSize;
   const buckets = new Map();
   items.forEach((it, idx) => {
@@ -294,10 +319,8 @@ function chunkedInstances(items, geo, material, opts = {}) {
   const group = new THREE.Group();
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), p = new THREE.Vector3(), s = new THREE.Vector3();
   const col = new THREE.Color();
-  for (const [k, list] of buckets) {
-    const g = new THREE.BufferGeometry();
-    for (const name in geo.attributes) g.setAttribute(name, geo.attributes[name]);
-    if (geo.index) g.setIndex(geo.index);
+  for (const list of buckets.values()) {
+    const g = chunkGeometry(geo);
     const mesh = new THREE.InstancedMesh(g, material, list.length);
     let minX = 1e9, minZ = 1e9, maxX = -1e9, maxZ = -1e9, maxY = 0;
     list.forEach((idx, i) => {
@@ -312,6 +335,9 @@ function chunkedInstances(items, geo, material, opts = {}) {
     });
     const r = Math.sqrt((maxX - minX) ** 2 + (maxZ - minZ) ** 2) / 2 + (opts.radius || 6);
     g.boundingSphere = new THREE.Sphere(new THREE.Vector3((minX + maxX) / 2, maxY + (opts.height || 3), (minZ + maxZ) / 2), r + (opts.height || 3));
+    if (opts.detailGeometry && opts.detailGeometry !== geo) {
+      GFX.treeChunks.push({ mesh, simple: g, detail: chunkGeometry(opts.detailGeometry, g.boundingSphere) });
+    }
     mesh.frustumCulled = true;
     mesh.castShadow = !!opts.castShadow; mesh.receiveShadow = opts.receiveShadow !== false;
     if (opts.depth) mesh.customDepthMaterial = opts.depth;
@@ -324,8 +350,7 @@ function chunkedInstances(items, geo, material, opts = {}) {
 
 function buildDecor(map) {
   const { biome } = map;
-  const heightAt = makeHeightSampler(map);
-  GFX.heightAt = heightAt;
+  const heightAt = GFX.heightAt;
   const group = new THREE.Group();
   // Tint leaves to the biome and keep the imported shape and flower detail.
   const mkGrass = (tipHex, flower) => {
@@ -371,6 +396,7 @@ function buildTrees(map, trees) {
   const bySpecies = {};
   trees.forEach((t, i) => { (bySpecies[t.species] || (bySpecies[t.species] = [])).push(i); });
   GFX.treeRefs = new Array(trees.length);
+  GFX.treeChunks = [];
   const rng = new RNG(map.seed + 3);
   const group = new THREE.Group();
   for (const sp in bySpecies) {
@@ -380,13 +406,29 @@ function buildTrees(map, trees) {
       const tint = rng.range(0.82, 1.12);
       return { x: t.x, y: heightAt(t.x, t.z) - 0.1, z: t.z, rot: t.rot, s: t.scale, color: new THREE.Color(tint, tint * rng.range(0.96, 1.04), tint) };
     });
-    const res = chunkedInstances(items, treeGeo(sp), modelMaterial('tree'), { height: 8, radius: 4, castShadow: true, depth: depthMaterial('tree') });
+    const res = chunkedInstances(items, simpleTreeGeo(sp), modelMaterial('tree'), {
+      height: 8, radius: 4, castShadow: true, depth: depthMaterial('tree'), detailGeometry: treeGeo(sp),
+    });
     idxs.forEach((ti, k) => { GFX.treeRefs[ti] = res.refs[k]; });
     group.add(res.group);
   }
   GFX.scene.add(group);
   GFX.treeGroup = group;
   GFX.fallingTrees = [];
+}
+
+function updateTreeDetail(cam) {
+  const q = GFX.quality;
+  const detailRadius = q === 'high' ? 52 : 36;
+  for (const { mesh, simple, detail } of GFX.treeChunks) {
+    const c = simple.boundingSphere.center;
+    const hysteresis = mesh.geometry === detail ? 8 : 0;
+    const zoomLimit = (q === 'high' ? 95 : 72) + hysteresis / 2;
+    const useDetail = q !== 'low' && cam.dist < zoomLimit
+      && (c.x - cam.x) ** 2 + (c.z - cam.z) ** 2 < (detailRadius + hysteresis) ** 2;
+    const nextGeometry = useDetail ? detail : simple;
+    if (mesh.geometry !== nextGeometry) mesh.geometry = nextGeometry;
+  }
 }
 const _tm4 = new THREE.Matrix4(), _tq = new THREE.Quaternion(), _treeYaw = new THREE.Quaternion(), _tp = new THREE.Vector3(), _ts = new THREE.Vector3();
 const TREE_UP = new THREE.Vector3(0, 1, 0), _treeFallAxis = new THREE.Vector3();
@@ -428,8 +470,10 @@ function updateFallingTrees(dt) {
 
 // ------------------------------------------------------------------ fog of war texture update
 function updateFowTexture(vis, explored, dt, reveal) {
+  if (reveal && GFX.fowRevealed) return;
   const N = GFX.map.N, cur = GFX.fowCur, data = GFX.fowTex.image.data;
   const k = Math.min(1, dt * 6);
+  let changed = false, settled = true;
   for (let i = 0; i < N * N; i++) {
     const target = reveal ? 1 : vis[i] ? 1 : explored[i] ? 0.5 : 0;
     let c = cur[i];
@@ -437,16 +481,22 @@ function updateFowTexture(vis, explored, dt, reveal) {
       c += (target - c) * k;
       if (Math.abs(target - c) < 0.01) c = target;
       cur[i] = c;
+      if (c !== target) settled = false;
     }
-    data[i * 4] = c * 255;
+    const value = Math.floor(c * 255);
+    if (data[i * 4] !== value) {
+      data[i * 4] = value;
+      changed = true;
+    }
   }
-  GFX.fowTex.needsUpdate = true;
+  GFX.fowRevealed = reveal && settled;
+  if (changed) GFX.fowTex.needsUpdate = true;
 }
 
 // sun & shadow frustum follow the camera target
 function updateSun(tx, tz, viewR) {
   const sun = GFX.sun, d = GFX.sunDir;
-  const half = clamp(viewR * 1.15, 36, 150);
+  const half = clamp(viewR * 0.9, 32, 110);
   const texel = (half * 2) / sun.shadow.mapSize.x;
   const sx = Math.round(tx / texel) * texel, sz = Math.round(tz / texel) * texel;
   sun.position.set(sx + d.x * 200, d.y * 200, sz + d.z * 200);

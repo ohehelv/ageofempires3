@@ -9,7 +9,8 @@ const BOT_NAMES = {
 };
 
 const App = {
-  game: null, attract: false, last: 0, acc: 0, iconsFor: null, setup: null,
+  game: null, attract: false, loading: false, last: 0, acc: 0, iconsFor: null, setup: null,
+  qualityPreference: 'medium', fpsTime: 0, fpsFrames: 0,
 
   boot() {
     const canvas = document.getElementById('gl');
@@ -25,7 +26,7 @@ const App = {
     this.setupMenu();
     window.addEventListener('pointerdown', () => Sfx.init(), { once: true });
     document.getElementById('app').addEventListener('contextmenu', (e) => { if (!(e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT'))) e.preventDefault(); });
-    document.addEventListener('visibilitychange', () => { this.last = performance.now(); });
+    document.addEventListener('visibilitychange', () => { this.last = performance.now(); this.fpsTime = 0; this.fpsFrames = 0; });
     this.startAttract();
     requestAnimationFrame((t) => this.loop(t));
   },
@@ -77,7 +78,11 @@ const App = {
     // pause menu
     const pm = document.getElementById('modal-pause');
     pm.querySelectorAll('[data-speed]').forEach((b) => b.addEventListener('click', () => { UI.speed = +b.dataset.speed; pm.querySelectorAll('[data-speed]').forEach((x) => x.classList.toggle('on', x === b)); }));
-    pm.querySelectorAll('[data-quality]').forEach((b) => b.addEventListener('click', () => { this.qualityChosen = true; setQuality(b.dataset.quality); pm.querySelectorAll('[data-quality]').forEach((x) => x.classList.toggle('on', x === b)); try { localStorage.setItem('nw-quality', b.dataset.quality); } catch (e) { /* ignore */ } }));
+    pm.querySelectorAll('[data-quality]').forEach((b) => b.addEventListener('click', () => {
+      this.qualityPreference = b.dataset.quality;
+      this.applyQuality(this.qualityPreference);
+      try { localStorage.setItem('nw-quality', this.qualityPreference); } catch (e) { /* ignore */ }
+    }));
     pm.querySelectorAll('[data-hud]').forEach((b) => b.addEventListener('click', () => { UI.setHudLayout(b.dataset.hud); pm.querySelectorAll('[data-hud]').forEach((x) => x.classList.toggle('on', x === b)); }));
     document.getElementById('opt-volume').addEventListener('input', (e) => Sfx.setVolume(e.target.value / 100));
     document.getElementById('opt-edge').addEventListener('change', (e) => { UI.edgeScroll = e.target.checked; });
@@ -96,7 +101,10 @@ const App = {
     document.getElementById('btn-end-menu').addEventListener('click', () => { document.getElementById('modal-end').hidden = true; this.toMenu(); });
     document.getElementById('btn-end-watch').addEventListener('click', () => { document.getElementById('modal-end').hidden = true; if (this.game) { this.game.revealAll = true; } });
     document.getElementById('btn-end-again').addEventListener('click', () => { document.getElementById('modal-end').hidden = true; if (this.setup) this.launch(Object.assign({}, this.setup, { seed: (Math.random() * 1e9) >>> 0 })); });
-    try { const q = localStorage.getItem('nw-quality'); if (q) { GFX.quality = q; this.qualityChosen = true; } } catch (e) { /* ignore */ }
+    try {
+      const q = localStorage.getItem('nw-quality');
+      if (['low', 'medium', 'high'].includes(q)) this.qualityPreference = q;
+    } catch (e) { /* ignore */ }
   },
   renderOpps() {
     const st = this.menuState, wrap = document.getElementById('opps');
@@ -126,17 +134,39 @@ const App = {
     });
     this.launch({ mapSize: st.size, biome: st.biome, seed: (Math.random() * 1e9) >>> 0, players });
   },
-  launch(setup) {
+  async launch(setup) {
+    if (this.loading) return;
+    this.loading = true;
     this.setup = setup;
     document.getElementById('menu').hidden = true;
     const ld = document.getElementById('loading');
     ld.hidden = false;
-    setTimeout(() => {
+    try {
+      const viewer = setup.players.find((p) => p.human) || setup.players[0];
+      const treeSpecies = Object.keys(BIOMES[setup.biome].trees)[0];
+      const iconKey = [viewer.color, viewer.civ, treeSpecies].join('|');
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      if (this.iconsFor !== iconKey) {
+        // Yield between portrait batches so GPU readbacks do not lock up the menu.
+        let deadline = performance.now() + 10;
+        for (const _ of renderIcons(viewer.color, viewer.civ, treeSpecies)) {
+          if (performance.now() < deadline) continue;
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          deadline = performance.now() + 10;
+        }
+        this.iconsFor = iconKey;
+        for (const k in Glyph.cache) if (k.startsWith('c:')) delete Glyph.cache[k];
+      }
       this.startGame(setup, false);
-      ld.hidden = true;
       Sfx.init(); Sfx.stopAmbient(); Sfx.startAmbient(setup.biome);
       UI.toast('Цель: уничтожьте все здания и войска противника. F1 — управление');
-    }, 30);
+    } catch (e) {
+      this.reportError(e);
+      this.toMenu();
+    } finally {
+      this.loading = false;
+      ld.hidden = true;
+    }
   },
   toMenu() {
     Sfx.stopAmbient();
@@ -167,31 +197,42 @@ const App = {
     if (!sc) return;
     const keep = new Set();
     for (const k in UNIT_MODELS) keep.add(UNIT_MODELS[k].geo);
-    for (const k in BUILDING_BUILDERS) { const b = BUILDING_BUILDERS[k]; keep.add(b.main); if (b.blades) keep.add(b.blades); if (b.bladesC) keep.add(b.bladesC); }
-    for (const k in TREE_GEOS) keep.add(TREE_GEOS[k]);
+    for (const { main, blades, bladesC, flag } of Object.values(BUILDING_BUILDERS)) {
+      keep.add(main); keep.add(blades); keep.add(bladesC); keep.add(flag);
+    }
     for (const k in PROP_GEOS) keep.add(PROP_GEOS[k]);
     for (const k in SCAFFOLD) keep.add(SCAFFOLD[k]);
     const keepMat = new Set(Object.values(MATS));
+    if (outpostModel) keepMat.add(outpostModel.material);
+    const geometries = new Set();
+    const materials = new Set([RS.ghostMatOk, RS.ghostMatBad].filter(Boolean));
+    for (const chunk of GFX.treeChunks || []) { geometries.add(chunk.simple); geometries.add(chunk.detail); }
     sc.traverse((o) => {
-      if (o.geometry && !keep.has(o.geometry)) o.geometry.dispose();
-      if (o.material && !keepMat.has(o.material)) { const ms = Array.isArray(o.material) ? o.material : [o.material]; ms.forEach((m) => { if (!keepMat.has(m)) m.dispose(); }); }
+      if (o.isInstancedMesh) o.dispose();
+      if (o.geometry && !keep.has(o.geometry)) geometries.add(o.geometry);
+      if (o.material) for (const m of [].concat(o.material)) if (!keepMat.has(m)) materials.add(m);
     });
-    if (GFX.fowTex) GFX.fowTex.dispose();
-    if (GFX.splatTex) GFX.splatTex.dispose();
-    if (sc.environment) sc.environment.dispose();
+    geometries.forEach((g) => g.dispose());
+    materials.forEach((m) => m.dispose());
+    FX.smoke?.points.material.uniforms.uTex.value.dispose();
+    FX.fire?.points.material.uniforms.uTex.value.dispose();
+    GFX.water?.material.uniforms.uDepth.value.dispose();
+    GFX.fowTex?.dispose();
+    GFX.splatTex?.dispose();
+    GFX.environment?.dispose();
+    GFX.sun?.shadow.dispose();
     GFX.renderer.renderLists.dispose();
-    GFX.scene = null;
+    GFX.scene = GFX.sun = GFX.decorGroup = GFX.water = GFX.environment = null;
   },
   startGame(setup, attract) {
     FX.active = false;
     this.disposeScene();
+    this.applyQuality(attract || GFX.softwareRenderer ? 'low' : this.qualityPreference);
     const game = new Game(setup);
     this.game = game; this.attract = attract; this.acc = 0;
     buildScene(game.map);
     RS.init(game);
     const viewer = game.players[game.viewer];
-    const iconKey = viewer.color + '|' + viewer.civKey;
-    if (!attract && this.iconsFor !== iconKey) { renderIcons(viewer.color, viewer.civKey); this.iconsFor = iconKey; for (const k in Glyph.cache) if (k.startsWith('c:')) delete Glyph.cache[k]; }
     for (const p of game.players) if (!p.isHuman) game.ais.push(new BotAI(game, p));
     if (attract) {
       game.revealAll = true;
@@ -200,7 +241,6 @@ const App = {
       const s = game.map.starts[0];
       Cam.yaw = Cam.tyaw = 0.4; Cam.dist = Cam.tdist = 64; Cam.jump(s.x, s.z + 6, true);
       this.attractT = 0; this.attractIdx = 0;
-      setQuality(GFX.quality);
     } else {
       Input.setGame(game);
       if (this.autoWork === false) game.autoWork = false;
@@ -210,10 +250,8 @@ const App = {
       Cam.yaw = Cam.tyaw = 0; Cam.dist = Cam.tdist = 70;
       Cam.jump(tc.x, tc.z + 4, true);
       Input.setSelection([]);
-      setQuality(GFX.quality);
       // warm up so the first frame has a settled fog texture
       updateFowTexture(game.vis, game.explored, 10, false);
-      this.fpsStat = null;
     }
     this.last = performance.now();
   },
@@ -223,31 +261,37 @@ const App = {
     if (this.errN <= 3) console.error('Ошибка в игровом цикле:', e);
     if (this.errN === 1 && !this.attract) UI.toast('Произошла внутренняя ошибка, игра продолжается', true);
   },
-  autoQuality(dt) {
-    if (this.qualityChosen || this.attract || document.hidden) return;
-    const s = this.fpsStat || (this.fpsStat = { t: 0, n: 0, sum: 0, warm: 0 });
-    s.warm += dt;
-    if (s.warm < 3) return;              // skip shader compilation hitches
-    s.t += dt; s.n++; s.sum += dt;
-    if (s.t < 4) return;
-    const avg = s.sum / s.n;
-    this.fpsStat = { t: 0, n: 0, sum: 0, warm: 2.5 };
-    if (avg > 1 / 30 && GFX.quality !== 'low') {
-      const next = GFX.quality === 'high' ? 'medium' : 'low';
-      setQuality(next);
-      UI.toast('Графика переключена на «' + (next === 'medium' ? 'среднее' : 'низкое') + '» качество для плавности. Можно изменить в меню.');
-    }
+  applyQuality(quality) {
+    setQuality(quality);
+    this.fpsTime = 0;
+    this.fpsFrames = 0;
+    this.qualityWarmup = performance.now() + 750;
+    document.querySelectorAll('#modal-pause [data-quality]').forEach((b) => b.classList.toggle('on', b.dataset.quality === quality));
+  },
+  autoQuality(dt, t) {
+    if (this.attract || GFX.quality === 'low' || t - dt * 1000 < this.qualityWarmup) return;
+    // A single hitch should not outweigh an otherwise smooth sample.
+    this.fpsTime += Math.min(dt, 0.25);
+    this.fpsFrames++;
+    if (this.fpsTime < 1.25) return;
+    const fps = this.fpsFrames / this.fpsTime;
+    this.fpsTime = 0;
+    this.fpsFrames = 0;
+    if (fps >= 28) return;
+    const next = GFX.quality === 'high' && fps >= 15 ? 'medium' : 'low';
+    this.applyQuality(next);
+    UI.toast('Качество графики снижено для плавности. Настройка доступна в меню паузы.');
   },
   loop(t) {
     requestAnimationFrame((tt) => this.loop(tt));
     const g = this.game;
-    let dt = (t - this.last) / 1000; this.last = t;
-    if (!(dt > 0)) dt = 0.016;
-    if (dt < 0.5) this.autoQuality(dt);
-    dt = Math.min(dt, 0.1);
-    if (!g || !GFX.scene) return;
+    const elapsed = (t - this.last) / 1000;
+    if (!g || !GFX.scene || this.loading || document.hidden || elapsed <= 0 || (this.attract && elapsed < 1 / 16)) return;
+    this.last = t;
+    const dt = Math.min(elapsed, 0.1);
     const paused = !this.attract && UI.isPaused();
     try {
+      this.autoQuality(elapsed, t);
       if (!paused) {
         this.acc += dt * (this.attract ? 1 : UI.speed);
         let n = 0;
@@ -262,6 +306,7 @@ const App = {
       Cam.update(dt, g);
       RS.computeViewBox(Cam);
       RS.frame(paused ? 0 : dt, paused ? 1 : alpha, this.attract ? [] : Input.selection);
+      updateTreeDetail(Cam);
       updateSun(Cam.x, Cam.z, Cam.dist);
       updateFowTexture(g.vis, g.explored, dt, g.revealAll);
       GFX.renderer.render(GFX.scene, GFX.camera);

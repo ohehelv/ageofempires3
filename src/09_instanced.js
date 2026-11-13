@@ -182,7 +182,7 @@ class InstPool {
 
 // ------------------------------------------------------------------ icon renderer (portraits)
 const ICONS = {};
-function renderIcons(playerColorHex, civ) {
+function* renderIcons(playerColorHex, civ, treeSpecies) {
   const S = 112;
   const cv = document.createElement('canvas'); cv.width = cv.height = S;
   let r2;
@@ -215,38 +215,44 @@ function renderIcons(playerColorHex, civ) {
     ICONS[key] = out.toDataURL('image/png');
     scene.remove(obj);
   };
-  // units
-  const unitKeys = ['settler', 'explorer', 'musketeer', 'pikeman', 'crossbowman', 'longbowman', 'strelet', 'rodelero', 'skirmisher', 'grenadier',
-    'hussar', 'dragoon', 'cuirassier', 'falconet', 'mortar', 'culverin', 'fortWagon', 'tcWagon', 'tradeWagon', 'deer', 'pronghorn', 'caribou', 'bison', 'wolf', 'bear', 'bandit'];
-  const m4 = new THREE.Matrix4();
-  for (const k of unitKeys) {
-    const def = UNITS[k];
-    const model = unitModel(def.model);
-    const g = new THREE.BufferGeometry();
-    for (const n in model.geo.attributes) g.setAttribute(n, model.geo.attributes[n]);
-    g.setIndex(model.geo.index);
-    g.setAttribute('iTeam', new THREE.InstancedBufferAttribute(new Float32Array([team.r, team.g, team.b]), 3));
-    g.setAttribute('iAnim', new THREE.InstancedBufferAttribute(new Float32Array([0, 0.5, 0, model.style + 0.3]), 4));
-    const mesh = new THREE.InstancedMesh(g, model.material || modelMaterial('unit'), 1);
-    mesh.setMatrixAt(0, m4.identity()); mesh.frustumCulled = false;
-    const human = !def.tags.has('cavalry') && !def.tags.has('wagon') && !def.tags.has('artillery') && !def.tags.has('animal');
-    snap('u:' + k, mesh, human ? 0.62 : 0.78, -0.62, human ? 0.22 : 0.4, human ? 0.6 : 0.5);
-    g.dispose();
+  try {
+    // units
+    const unitKeys = ['settler', 'explorer', 'musketeer', 'pikeman', 'crossbowman', 'longbowman', 'strelet', 'rodelero', 'skirmisher', 'grenadier',
+      'hussar', 'dragoon', 'cuirassier', 'falconet', 'mortar', 'culverin', 'fortWagon', 'tcWagon', 'tradeWagon', 'deer', 'pronghorn', 'caribou', 'bison', 'wolf', 'bear', 'bandit'];
+    const m4 = new THREE.Matrix4();
+    for (const k of unitKeys) {
+      const def = UNITS[k];
+      const model = unitModel(def.model);
+      const g = new THREE.BufferGeometry();
+      for (const n in model.geo.attributes) g.setAttribute(n, model.geo.attributes[n]);
+      g.setIndex(model.geo.index);
+      g.setAttribute('iTeam', new THREE.InstancedBufferAttribute(new Float32Array([team.r, team.g, team.b]), 3));
+      g.setAttribute('iAnim', new THREE.InstancedBufferAttribute(new Float32Array([0, 0.5, 0, model.style + 0.3]), 4));
+      const mesh = new THREE.InstancedMesh(g, model.material || modelMaterial('unit'), 1);
+      mesh.setMatrixAt(0, m4.identity()); mesh.frustumCulled = false;
+      const human = !def.tags.has('cavalry') && !def.tags.has('wagon') && !def.tags.has('artillery') && !def.tags.has('animal');
+      snap('u:' + k, mesh, human ? 0.62 : 0.78, -0.62, human ? 0.22 : 0.4, human ? 0.6 : 0.5);
+      mesh.dispose();
+      g.dispose();
+      yield;
+    }
+    for (const k in BUILDINGS) {
+      const geo = getBuildingGeo(k, civ, playerColorHex);
+      const grp = new THREE.Group();
+      grp.add(createBuildingMesh(geo, 'staticNoFow'));
+      if (geo.blades) grp.add(new THREE.Mesh(geo.blades, modelMaterial('staticNoFow')));
+      snap('b:' + k, grp, 0.82, -0.6, 0.5, 0.42);
+      yield;
+    }
+    // resources
+    const res = { tree: treeGeo(treeSpecies), mine: propGeo('mine'), quarry: propGeo('quarry'), bush: propGeo('bush'), treasure: propGeo('treasure'), crate: propGeo('crate_coin'), crate_food: propGeo('crate_food'), crate_wood: propGeo('crate_wood'), crate_stone: propGeo('crate_stone') };
+    for (const k in res) {
+      const mesh = new THREE.Mesh(res[k], modelMaterial('staticNoFow'));
+      snap('r:' + k, mesh, 0.85, -0.6, 0.45, 0.45);
+      yield;
+    }
+  } finally {
+    r2.dispose();
+    r2.forceContextLoss();
   }
-  for (const k in BUILDINGS) {
-    const def = BUILDINGS[k];
-    const geo = getBuildingGeo(k, civ, playerColorHex);
-    const grp = new THREE.Group();
-    grp.add(createBuildingMesh(geo, 'staticNoFow'));
-    if (geo.blades) grp.add(new THREE.Mesh(geo.blades, modelMaterial('staticNoFow')));
-    snap('b:' + k, grp, 0.82, -0.6, 0.5, 0.42);
-  }
-  // resources
-  const res = { tree: treeGeo(Object.keys(GFX.map ? GFX.map.biome.trees : { pine: 1 })[0]), mine: propGeo('mine'), quarry: propGeo('quarry'), bush: propGeo('bush'), treasure: propGeo('treasure'), crate: propGeo('crate_coin'), crate_food: propGeo('crate_food'), crate_wood: propGeo('crate_wood'), crate_stone: propGeo('crate_stone') };
-  for (const k in res) {
-    const mesh = new THREE.Mesh(res[k], modelMaterial(k === 'tree' ? 'staticNoFow' : 'staticNoFow'));
-    snap('r:' + k, mesh, 0.85, -0.6, 0.45, 0.45);
-  }
-  r2.dispose();
-  try { r2.forceContextLoss(); } catch (e) { /* ignore */ }
 }
