@@ -28,12 +28,12 @@ mat3 rotYm(float a){ float c=cos(a), s=sin(a); return mat3(c,0.0,-s, 0.0,1.0,0.0
 void rotAround(inout vec3 p, inout vec3 n, vec3 piv, mat3 r){ p = piv + r * (p - piv); n = r * n; }
 float armAngle(bool right, float st, float t, float ph, float rnd, float rider, float style){
   if (st > 11.5) {
+    if (!right) return -0.12;
     float s = fract(t / ${CHOP_PERIOD});
     float hit = ${CHOP_IMPACT / CHOP_PERIOD};
     float a = mix(-0.55, -2.65, smoothstep(0.0, 0.35, s));
     a = mix(a, st > 12.5 ? -0.68 : -1.28, smoothstep(0.35, hit, s));
-    a = mix(a, -0.55, smoothstep(hit, 0.92, s));
-    return right ? a : mix(-0.58, a, 0.55);
+    return mix(a, -0.55, smoothstep(hit, 0.92, s));
   }
   if (st > 9.5 && st < 10.5) return right ? 0.35 : -0.25;          // dead
   if (st < 0.5) return (right ? -0.04 : 0.05) + 0.035*sin(t*1.3 + rnd*6.0 + (right?0.0:1.0));
@@ -99,6 +99,7 @@ float weaponAngle(bool right, float st, float t, float arm, float style){
 }
 float elbowAngle(bool right, float st, float t, float phase, float rider){
   if (st > 11.5) {
+    if (!right) return -0.25;
     float s = fract(t / ${CHOP_PERIOD});
     return -0.24 - 0.64 * smoothstep(0.0, 0.32, s) * (1.0 - smoothstep(0.34, 0.51, s));
   }
