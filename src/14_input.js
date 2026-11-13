@@ -18,6 +18,7 @@ const Cam = {
     const hz = Math.cos(pitch) * this.dist, vy = Math.sin(pitch) * this.dist;
     cam.position.set(this.x + Math.sin(this.yaw) * hz, this.groundY + vy, this.z + Math.cos(this.yaw) * hz);
     cam.lookAt(this.x, this.groundY, this.z);
+    cam.updateMatrixWorld();
     if (GFX.scene && GFX.scene.fog) { GFX.scene.fog.near = this.dist * 1.6; GFX.scene.fog.far = this.dist * 5.5 + 80; }
     Sfx.listener.x = this.x; Sfx.listener.z = this.z; Sfx.listener.yaw = this.yaw;
   },

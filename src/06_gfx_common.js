@@ -77,7 +77,7 @@ float weaponAngle(bool right, float st, float t, float arm, float style){
     float s = fract(t / ${CHOP_PERIOD});
     float hit = ${CHOP_IMPACT / CHOP_PERIOD};
     float pitch = mix(1.0, -0.65, smoothstep(0.0, 0.35, s));
-    pitch = mix(pitch, st > 12.5 ? 2.35 : 1.73, smoothstep(0.35, hit, s));
+    pitch = mix(pitch, st > 12.5 ? 2.35 : 1.50, smoothstep(0.35, hit, s));
     return mix(pitch, 1.0, smoothstep(hit, 0.92, s)) - arm;
   }
   if (style > 4.5 && st > 1.5 && st < 2.5) return 1.5708 - arm - exp(-t * 12.0) * 0.12;

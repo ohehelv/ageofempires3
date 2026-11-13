@@ -257,7 +257,7 @@ const RS = {
       if (u.alive && !u.ko) {
         proj.set(x, y + (def.height || 1.8) * 0.5 * UNIT_SCALE, z).project(cam);
         const sx = (proj.x * 0.5 + 0.5) * W, sy = (-proj.y * 0.5 + 0.5) * H;
-        this.screenUnits.push({ u, sx, sy, depth: proj.z });
+        this.screenUnits.push({ u, x, y, z, sx, sy, depth: proj.z });
         if (u.selected) {
           _c2.copy(u.owner === g.viewer ? new THREE.Color(0xf4f1e4) : u.owner < 0 ? new THREE.Color(0xe8d48a) : g.players[u.owner].colorLin);
           const r = (def.radius * 1.55 + 0.2) * UNIT_SCALE;

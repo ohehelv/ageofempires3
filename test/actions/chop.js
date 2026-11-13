@@ -43,11 +43,24 @@ module.exports = async (page, { shot }) => {
     const fellAway = (matrix.elements[4] * Math.sin(angle) + matrix.elements[6] * Math.cos(angle)) > 0;
     const mesh = RS.units.sets.settler.mesh;
     const weighted = mesh.geometry.attributes.aSkinWeights.array.some((weight) => weight > 0 && weight < 1);
+    const { position, aBonePivot } = mesh.geometry.attributes;
+    let bladeForward = -Infinity;
+    let handleForward = -Infinity;
+    let sideways = 0;
+    for (let i = 0; i < position.count; i++) {
+      if (aBonePivot.getW(i) !== 40) continue;
+      const dz = position.getZ(i) - aBonePivot.getZ(i);
+      sideways = Math.max(sideways, Math.abs(position.getX(i) - aBonePivot.getX(i)));
+      const dy = position.getY(i) - aBonePivot.getY(i);
+      if (dy > 0.28) bladeForward = Math.max(bladeForward, dz);
+      if (Math.abs(dy) < 0.08) handleForward = Math.max(handleForward, dz);
+    }
+    const axeFacesSwing = bladeForward - handleForward > 0.18 && sideways < 0.09;
     const logPose = RS.units.sets.settler.iAnim.array.some((value, i) => i % 4 === 0 && value === 13);
     window.chopFixture = { settler, tree };
-    return { beforeImpact, felledAtImpact, hits, sounds, fellAway, grounded: ref.onGround, weighted, logPose, gathered: settler.player.res.wood > woodBefore };
+    return { beforeImpact, felledAtImpact, hits, sounds, fellAway, grounded: ref.onGround, weighted, axeFacesSwing, logPose, gathered: settler.player.res.wood > woodBefore };
   });
-  for (const key of ['beforeImpact', 'felledAtImpact', 'fellAway', 'grounded', 'weighted', 'logPose', 'gathered']) assert.equal(result[key], true, key);
+  for (const key of ['beforeImpact', 'felledAtImpact', 'fellAway', 'grounded', 'weighted', 'axeFacesSwing', 'logPose', 'gathered']) assert.equal(result[key], true, key);
   assert.equal(result.hits.length, 2);
   assert.ok(result.hits.every(({ correctTree }) => correctTree));
   assert.ok(Math.abs(result.hits[1].time - result.hits[0].time - 1.1) < 0.001);

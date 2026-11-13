@@ -71,9 +71,12 @@ function importedWeapon(b, kind, x, y, z, binding) {
   if (!spec) return false;
   const [model, length, grip, axis] = spec;
   const size = artMesh(model).bounds.getSize(new THREE.Vector3());
+  const scale = length / size.getComponent(axis);
+  // The axe edge is on +X in the source. Turn it toward +Z and center the shaft in the grip.
+  const axe = kind === 'axe';
   artPart(b, model, {
-    ...binding, x, y: y + length * (axis === 0 ? 0.5 - grip : -grip), z,
-    scale: length / size.getComponent(axis), rz: axis === 0 ? PI / 2 : 0,
+    ...binding, x, y: y + length * (axis === 0 ? 0.5 - grip : -grip), z: z + (axe ? 0.154 * scale : 0),
+    scale, ry: axe ? -PI / 2 : 0, rz: axis === 0 ? PI / 2 : 0,
     centerY: axis === 0, rough: 0.65,
   });
   return true;

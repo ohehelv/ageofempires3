@@ -970,7 +970,7 @@ const UI = {
       const u = su.u;
       const show = u.selected || (g.time - u.lastHitT < 3 && near && u.hp < u.maxHp && (u.owner >= 0 || u.def.tags.has('guardian')));
       if (!show) continue;
-      const p = toScreen(u.x, (u.y || 0) + (u.def.height || 1.8) * UNIT_SCALE + 0.5, u.z);
+      const p = toScreen(su.x, su.y + (u.def.height || 1.8) * UNIT_SCALE + 0.5, su.z);
       if (p.z > 1) continue;
       const w = u.def.tags.has('cavalry') || u.def.tags.has('artillery') ? 30 : 22;
       bar(p.x, p.y, w, u.hp / u.maxHp, this.hpColor(u.hp / u.maxHp));
