@@ -15,15 +15,27 @@ function srgbMix(a, b, t) { // hex mix in sRGB space -> hex
 }
 
 const ANIM_GLSL = /* glsl */`
-attribute float aBone;
-attribute vec3 aPivot;
+attribute vec4 aBonePivot;
 attribute vec3 aPivot2;
 attribute vec4 iAnim;
+#ifdef WEIGHTED_UNITS
+attribute vec4 aSkinBones;
+attribute vec4 aSkinWeights;
+uniform vec3 uUnitPivots[40];
+#endif
 mat3 rotXm(float a){ float c=cos(a), s=sin(a); return mat3(1.0,0.0,0.0, 0.0,c,s, 0.0,-s,c); }
 mat3 rotYm(float a){ float c=cos(a), s=sin(a); return mat3(c,0.0,-s, 0.0,1.0,0.0, s,0.0,c); }
 void rotAround(inout vec3 p, inout vec3 n, vec3 piv, mat3 r){ p = piv + r * (p - piv); n = r * n; }
 float armAngle(bool right, float st, float t, float ph, float rnd, float rider, float style){
-  if (st > 9.5) return right ? 0.35 : -0.25;                       // dead
+  if (st > 11.5) {
+    float s = fract(t / ${CHOP_PERIOD});
+    float hit = ${CHOP_IMPACT / CHOP_PERIOD};
+    float a = mix(-0.55, -2.65, smoothstep(0.0, 0.35, s));
+    a = mix(a, st > 12.5 ? -0.68 : -1.28, smoothstep(0.35, hit, s));
+    a = mix(a, -0.55, smoothstep(hit, 0.92, s));
+    return right ? a : mix(-0.58, a, 0.55);
+  }
+  if (st > 9.5 && st < 10.5) return right ? 0.35 : -0.25;          // dead
   if (st < 0.5) return (right ? -0.04 : 0.05) + 0.035*sin(t*1.3 + rnd*6.0 + (right?0.0:1.0));
   if (st < 1.5) {
     if (rider > 0.5) return -0.55;
@@ -35,8 +47,7 @@ float armAngle(bool right, float st, float t, float ph, float rnd, float rider, 
     return (right ? -1.48 : -1.28) - rc;
   }
   if (st < 3.5) {                                                    // sword swing
-    float s = fract(t * 0.85 + rnd);
-    float a = s < 0.4 ? mix(-0.5, -2.6, smoothstep(0.0, 0.4, s)) : mix(-2.6, -0.25, smoothstep(0.4, 0.58, s));
+    float a = mix(-1.65, -0.4, smoothstep(0.0, 0.28, t));
     return right ? a : -0.55;
   }
   if (st < 4.5) {                                                    // work: chop / mine / hammer
@@ -62,6 +73,15 @@ float armAngle(bool right, float st, float t, float ph, float rnd, float rider, 
   return 0.0;
 }
 float weaponAngle(bool right, float st, float t, float arm, float style){
+  if (st > 11.5) {
+    float s = fract(t / ${CHOP_PERIOD});
+    float hit = ${CHOP_IMPACT / CHOP_PERIOD};
+    float pitch = mix(1.0, -0.65, smoothstep(0.0, 0.35, s));
+    pitch = mix(pitch, st > 12.5 ? 2.35 : 1.73, smoothstep(0.35, hit, s));
+    return mix(pitch, 1.0, smoothstep(hit, 0.92, s)) - arm;
+  }
+  if (style > 4.5 && st > 1.5 && st < 2.5) return 1.5708 - arm - exp(-t * 12.0) * 0.12;
+  if (style > 4.5) return st > 3.5 && st < 4.5 ? 0.25 : 0.9;
   // style 0 gun, 1 sword/tool, 2 pike, 3 bow (left), 4 shield (left)
   if (style < 0.5) {
     if (st > 1.5 && st < 2.5 || (st > 10.5 && st < 11.5)) return 1.5708 - arm - exp(-t*12.0)*0.12;
@@ -69,7 +89,7 @@ float weaponAngle(bool right, float st, float t, float arm, float style){
     if (st > 2.5 && st < 3.5) return 2.9;
     return 0.0;
   }
-  if (style < 1.5) return 2.75;
+  if (style < 1.5) return right ? (st > 3.5 && st < 4.5 ? 0.25 : 0.9) : 0.0;
   if (style < 2.5) {
     if ((st > 5.5 && st < 6.5) || (st > 2.5 && st < 3.5)) return 1.5708 - arm;
     return 0.0;
@@ -77,8 +97,17 @@ float weaponAngle(bool right, float st, float t, float arm, float style){
   if (style < 3.5) return -arm;
   return -arm * 0.6;
 }
-void animApply(inout vec3 p, inout vec3 n){
-  float b = aBone;
+float elbowAngle(bool right, float st, float t, float phase, float rider){
+  if (st > 11.5) {
+    float s = fract(t / ${CHOP_PERIOD});
+    return -0.24 - 0.64 * smoothstep(0.0, 0.32, s) * (1.0 - smoothstep(0.34, 0.51, s));
+  }
+  if ((st > 1.5 && st < 2.5) || (st > 10.5 && st < 11.5)) return right ? -0.22 : -0.44;
+  if (st > 7.5 && st < 8.5) return right ? -0.75 : -0.16;
+  if (st > 0.5 && st < 1.5) return -0.17 - 0.13 * max(0.0, sin(phase + (right ? 0.0 : 3.14159)));
+  return rider > 0.5 ? -0.45 : -0.13;
+}
+void animateBone(float b, vec3 pivot, vec3 parentPivot, inout vec3 p, inout vec3 n){
   if (b < 0.5) return;
   float st = iAnim.x, t = iAnim.y, ph = iAnim.z;
   float style = floor(iAnim.w), rnd = fract(iAnim.w);
@@ -87,62 +116,113 @@ void animApply(inout vec3 p, inout vec3 n){
   vec3 off = vec3(0.0);
   bool moving = st > 0.5 && st < 1.5;
   if (b < 0.5) {
+    // The rider's body follows the horse's vertical motion below.
   } else if (b < 2.5) {
     float s = (moving && rider < 0.5) ? sin(ph) * 0.62 : 0.0;
     float a = b < 1.5 ? s : -s;
     if (st > 9.5) a = b < 1.5 ? 0.25 : -0.1;
-    rotAround(p, n, aPivot, rotXm(a));
+    rotAround(p, n, pivot, rotXm(a));
   } else if (b < 6.5) {
     bool right = (b > 3.5 && b < 5.5);
     float arm = armAngle(right, st, t, ph, rnd, rider, style);
     if (b > 4.5) {
-      float w = weaponAngle(right, st, t, arm, style);
-      rotAround(p, n, aPivot, rotXm(w));
-      rotAround(p, n, aPivot2, rotXm(arm));
+      float elbow = 0.0;
+      #ifdef WEIGHTED_UNITS
+      float armBone = (right ? 4.0 : 3.0) + rider * 20.0;
+      if (distance(uUnitPivots[int(armBone)], parentPivot) < 0.002) {
+        elbow = elbowAngle(right, st, t, ph, rider);
+      }
+      #endif
+      float w = weaponAngle(right, st, t, arm + elbow, style);
+      rotAround(p, n, pivot, rotXm(w));
+      #ifdef WEIGHTED_UNITS
+      if (elbow != 0.0) rotAround(p, n, uUnitPivots[int((right ? 17.0 : 16.0) + rider * 20.0)], rotXm(elbow));
+      #endif
+      rotAround(p, n, parentPivot, rotXm(arm));
     } else {
-      rotAround(p, n, aPivot, rotXm(arm));
+      rotAround(p, n, pivot, rotXm(arm));
     }
   } else if (b < 10.5) {
     float k = b - 7.0;
     float pha = ph + (k < 0.5 ? 0.0 : k < 1.5 ? 3.14159 : k < 2.5 ? 1.5708 : 4.7124);
     float amp = moving ? 0.6 : 0.0;
     if (st > 9.5) amp = 0.0;
-    rotAround(p, n, aPivot, rotXm(sin(pha) * amp));
+    rotAround(p, n, pivot, rotXm(sin(pha) * amp));
   } else if (b < 11.5) {
     float a = 0.0;
     if (st < 0.5) a = 0.5 * smoothstep(0.2, 0.9, sin(t * 0.35 + rnd * 6.28));
     else if (moving) { a = sin(ph * 2.0) * 0.08; off.y += abs(sin(ph)) * 0.07; }
     else if (st > 2.5 && st < 3.5) a = -0.25 + 0.55 * max(0.0, sin(t * 8.0));
     else if (st > 9.5) a = 0.5;
-    rotAround(p, n, aPivot, rotXm(a));
+    rotAround(p, n, pivot, rotXm(a));
   } else if (b < 12.5) {
     float a = sin(t * 3.0 + rnd * 5.0) * 0.3 + (moving ? sin(ph) * 0.25 : 0.0);
-    rotAround(p, n, aPivot, rotYm(a));
+    rotAround(p, n, pivot, rotYm(a));
   } else if (b < 13.5) {
     if (moving) off.y += abs(sin(ph)) * 0.07;
   } else if (b < 14.5) {
-    rotAround(p, n, aPivot, rotXm(ph));
+    rotAround(p, n, pivot, rotXm(ph));
   } else if (b < 15.5) {
     if (st > 6.5 && st < 7.5) off.z -= exp(-t * 6.0) * 0.35;
+  } else if (b < 17.5) {
+    bool right = b > 16.5;
+    rotAround(p, n, pivot, rotXm(elbowAngle(right, st, t, ph, rider)));
+    rotAround(p, n, parentPivot, rotXm(armAngle(right, st, t, ph, rnd, rider, style)));
+  } else {
+    bool right = b > 18.5;
+    float swing = st > 9.5 && st < 10.5 ? (right ? -0.1 : 0.25) : moving && rider < 0.5 ? sin(ph) * (right ? -0.62 : 0.62) : 0.0;
+    float knee = moving && rider < 0.5 ? max(0.0, -swing) * 0.95 : 0.0;
+    rotAround(p, n, pivot, rotXm(knee));
+    rotAround(p, n, parentPivot, rotXm(swing));
   }
   if (rider > 0.5 && moving) off.y += abs(sin(ph)) * 0.09;
   p += off;
 }
+void animApply(inout vec3 p, inout vec3 n){
+  #ifdef WEIGHTED_UNITS
+  if (dot(aSkinWeights, vec4(1.0)) > 0.0) {
+    vec3 pos = vec3(0.0), norm = vec3(0.0);
+    for (int i = 0; i < 4; i++) {
+      float w = aSkinWeights[i];
+      if (w <= 0.0) continue;
+      float b = aSkinBones[i];
+      int index = int(b);
+      int base = index >= 20 ? index - 20 : index;
+      int parent = base >= 16 ? (base == 16 ? 3 : base == 17 ? 4 : base == 18 ? 1 : 2) + index - base : index;
+      vec3 vp = p, vn = n;
+      animateBone(b, uUnitPivots[index], uUnitPivots[parent], vp, vn);
+      pos += w * vp; norm += w * vn;
+    }
+    p = pos; n = normalize(norm);
+    return;
+  }
+  #endif
+  float b = aBonePivot.w;
+  vec3 pivot = aBonePivot.xyz;
+  // Settlers carry an axe at work and switch to a musket when hunting.
+  if (b > 39.5) {
+    bool hunting = iAnim.x > 1.5 && iAnim.x < 2.5;
+    if ((b > 49.5) != hunting) { p = pivot; return; }
+    b = 5.0;
+  }
+  animateBone(b, pivot, aPivot2, p, n);
+}
 `;
 
 // patch a MeshStandardMaterial / MeshLambertMaterial
-// opts: { anim, motion, team, vmat, wind (amplitude), fow (default true) }
+// opts: { anim, motion, skin, team, vmat, wind (amplitude), fow (default true) }
 function patchMaterial(mat, opts = {}) {
   const fow = opts.fow !== false;
-  const key = ['p', opts.motion ? 'm' : opts.anim ? 'a' : '', opts.team ? 't' : '', opts.vmat ? 'v' : '', opts.wind ? 'w' + opts.wind : '', fow ? 'f' : ''].join('');
+  const key = ['p', opts.motion ? 'm' : opts.anim ? 'a' : '', opts.skin ? 's' : '', opts.team ? 't' : '', opts.vmat ? 'v' : '', opts.wind ? 'w' + opts.wind : '', fow ? 'f' : ''].join('');
   mat.customProgramCacheKey = () => key;
   mat.onBeforeCompile = (sh) => {
     sh.uniforms.uFow = U.uFow; sh.uniforms.uMapSize = U.uMapSize; sh.uniforms.uTime = U.uTime;
     if (opts.motion) Object.assign(sh.uniforms, opts.motion);
+    if (opts.skin) sh.uniforms.uUnitPivots = { value: opts.skin };
     let vs = sh.vertexShader, fs = sh.fragmentShader;
     let vpre = 'varying vec3 vFowPos;\nuniform float uTime;\n';
     if (opts.motion) vpre += DEER_MOTION_GLSL;
-    else if (opts.anim) vpre += ANIM_GLSL;
+    else if (opts.anim) vpre += (opts.skin ? '#define WEIGHTED_UNITS\n' : '') + ANIM_GLSL;
     if (opts.team) vpre += 'attribute float aTeam;\nattribute vec3 iTeam;\nvarying float vTeam;\nvarying vec3 vTeamCol;\n';
     if (opts.vmat) vpre += 'attribute vec2 aMat;\nvarying vec2 vMat;\n';
     vs = vs.replace('#include <common>', '#include <common>\n' + vpre);
@@ -203,13 +283,14 @@ function patchMaterial(mat, opts = {}) {
 // depth material for animated / wind-swayed instanced meshes (so shadows move too)
 function makeDepthMaterial(opts) {
   const m = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
-  const key = 'd' + (opts.motion ? 'm' : opts.anim ? 'a' : '') + (opts.wind ? 'w' + opts.wind : '');
+  const key = 'd' + (opts.motion ? 'm' : opts.anim ? 'a' : '') + (opts.skin ? 's' : '') + (opts.wind ? 'w' + opts.wind : '');
   m.customProgramCacheKey = () => key;
   m.onBeforeCompile = (sh) => {
     sh.uniforms.uTime = U.uTime;
     if (opts.motion) Object.assign(sh.uniforms, opts.motion);
+    if (opts.skin) sh.uniforms.uUnitPivots = { value: opts.skin };
     let vs = sh.vertexShader;
-    const pre = 'uniform float uTime;\n' + (opts.motion ? DEER_MOTION_GLSL : opts.anim ? ANIM_GLSL : '');
+    const pre = 'uniform float uTime;\n' + (opts.skin ? '#define WEIGHTED_UNITS\n' : '') + (opts.motion ? DEER_MOTION_GLSL : opts.anim ? ANIM_GLSL : '');
     vs = vs.replace('#include <common>', '#include <common>\n' + pre);
     let bv = 'vec3 transformed = vec3( position );\n';
     if (opts.motion) bv += 'transformed = deerPosition();\n';
@@ -234,7 +315,7 @@ function makeDepthMaterial(opts) {
 const _m4 = new THREE.Matrix4(), _q = new THREE.Quaternion(), _e = new THREE.Euler(), _v3 = new THREE.Vector3(), _s3 = new THREE.Vector3();
 
 class PartBuilder {
-  constructor() { this.P = []; this.Nn = []; this.Cc = []; this.T = []; this.B = []; this.PV = []; this.PV2 = []; this.M = []; this.tag = []; this.indices = null; }
+  constructor() { this.P = []; this.Nn = []; this.Cc = []; this.T = []; this.B = []; this.PV = []; this.PV2 = []; this.M = []; this.tag = []; this.indices = null; this.skin = null; }
   add(geo, o = {}) {
     let g = geo.index ? geo.toNonIndexed() : geo;
     _e.set(o.rx || 0, o.ry || 0, o.rz || 0, o.order || 'XYZ');
@@ -306,10 +387,23 @@ class PartBuilder {
       g.setAttribute('aTeam', new THREE.Float32BufferAttribute(this.T, 1));
     }
     g.setAttribute('color', new THREE.Float32BufferAttribute(C, 3));
-    g.setAttribute('aBone', new THREE.Float32BufferAttribute(this.B, 1));
-    g.setAttribute('aPivot', new THREE.Float32BufferAttribute(this.PV, 3));
+    // Pack the bone with its pivot to fit the WebGL attribute limit with instancing and skinning.
+    const pivots = new Float32Array(this.B.length * 4);
+    for (let i = 0; i < this.B.length; i++) {
+      pivots[i * 4] = this.PV[i * 3]; pivots[i * 4 + 1] = this.PV[i * 3 + 1];
+      pivots[i * 4 + 2] = this.PV[i * 3 + 2]; pivots[i * 4 + 3] = this.B[i];
+    }
+    g.setAttribute('aBonePivot', new THREE.BufferAttribute(pivots, 4));
     g.setAttribute('aPivot2', new THREE.Float32BufferAttribute(this.PV2, 3));
     g.setAttribute('aMat', new THREE.Float32BufferAttribute(this.M, 2));
+    if (this.skin) {
+      const length = this.P.length / 3 * 4;
+      const bones = new Float32Array(length), weights = new Float32Array(length);
+      this.skin.bones.forEach((bone, i) => { bones[i] = bone; });
+      this.skin.weights.forEach((weight, i) => { weights[i] = weight; });
+      g.setAttribute('aSkinBones', new THREE.BufferAttribute(bones, 4));
+      g.setAttribute('aSkinWeights', new THREE.BufferAttribute(weights, 4));
+    }
     g.computeBoundingSphere(); g.computeBoundingBox();
     return g;
   }

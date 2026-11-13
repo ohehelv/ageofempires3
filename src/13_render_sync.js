@@ -57,7 +57,10 @@ const FX = {
       }
       case 'gather': {
         const k = d.k, u = d.u;
-        const fx = u.x + Math.sin(u.heading) * 0.9, fz = u.z + Math.cos(u.heading) * 0.9, fy = y0 + 0.7;
+        const tree = d.tree;
+        const fx = tree ? tree.x : u.x + Math.sin(u.heading) * 0.9;
+        const fz = tree ? tree.z : u.z + Math.cos(u.heading) * 0.9;
+        const fy = tree ? g.heightAt(fx, fz) + (tree.felled ? 0.35 : 1.35) : y0 + 0.7;
         if (k === 'wood') { Sfx.play('chop', x, z, 0.55); for (let i = 0; i < 3; i++) this.smoke.emit(fx, fy, fz, rnd(1.5), 1.5 + Math.random(), rnd(1.5), 0.6, 0.12, 0.1, 0.78, 0.62, 0.4, 1, 0.5, 9); }
         else if (k === 'mine') { Sfx.play('mine', x, z, 0.5); for (let i = 0; i < 3; i++) this.fire.emit(fx, fy, fz, rnd(2), 1 + Math.random() * 2, rnd(2), 0.3, 0.1, 0.04, 1, 0.9, 0.5, 1, 0.5, 10); }
         else if (k === 'quarry') { Sfx.play('stone', x, z, 0.55); for (let i = 0; i < 4; i++) this.smoke.emit(fx, fy, fz, rnd(1.8), 1.2 + Math.random() * 1.5, rnd(1.8), 0.55, 0.13, 0.09, 0.82, 0.8, 0.74, 1, 0.5, 10); this.smoke.emit(fx, fy - 0.3, fz, rnd(0.3), 0.3, rnd(0.3), 1.4, 0.4, 1.4, 0.8, 0.78, 0.72, 0.35, 0.6, 0); }
@@ -209,13 +212,21 @@ const RS = {
       if (!u.alive && u.deathT > 13 && !(u.carcass && u.carcass.alive)) continue;
       const fr = this.friendly(u.owner);
       if (!g.revealAll && !fr && !g.isVisibleW(u.x, u.z)) continue;
-      const x = lerp(u.px, u.x, alpha), z = lerp(u.pz, u.z, alpha);
+      let x = lerp(u.px, u.x, alpha), z = lerp(u.pz, u.z, alpha);
       if (!this.inView(x, z)) continue;
       const h = angleLerp(u.ph, u.heading, alpha);
       let y = g.heightAt(x, z);
       const def = u.def;
       const deerClips = deerMotionClips(def.model);
       let anim = u.anim;
+      const tree = anim === ANIM.CHOP && u.order?.type === 'gather' ? u.order.target : null;
+      if (tree?.rkind === 'tree' && tree.alive && u.alive && !u.ko) {
+        if (GFX.treeRefs?.[tree.ti]?.onGround) anim = ANIM.CHOP_LOG;
+        const gap = Math.hypot(tree.x - x, tree.z - z);
+        const reach = clamp(gap - 1.42, 0, 0.75) * clamp(u.animT / 0.2, 0, 1);
+        x += Math.sin(h) * reach; z += Math.cos(h) * reach;
+        y = g.heightAt(x, z);
+      }
       _e2.set(0, h, 0, 'YXZ');
       if (!u.alive || u.ko) {
         if (!deerClips) {
@@ -238,8 +249,10 @@ const RS = {
       if (u.moving && dt > 0 && (def.tags.has('cavalry') || def.tags.has('wagon') || def.tags.has('artillery') || def.tags.has('trade') || def.key === 'bison') && Math.random() < dt * 6) {
         FX.smoke.emit(x - Math.sin(h) * 0.9 + rnd(0.4), y + 0.15, z - Math.cos(h) * 0.9 + rnd(0.4), rnd(0.3), 0.35, rnd(0.3), 1.3, 0.6, 1.9, DUST[0], DUST[1], DUST[2], 0.32, 0.6, 0);
       }
-      const phase = deerClips ? deerMotionFrame(deerClips, u, alpha) : u.walkPh;
-      UIi.push(def.model, _m, team, anim, u.animT, phase, u.rnd);
+      const frameBack = (1 - alpha) * TICK;
+      const step = u.moving ? Math.hypot(u.x - u.px, u.z - u.pz) : 0;
+      const phase = deerClips ? deerMotionFrame(deerClips, u, alpha) : u.walkPh - (1 - alpha) * step * u.stride;
+      UIi.push(def.model, _m, team, anim, Math.max(0, u.animT - frameBack), phase, u.rnd);
       // selection ring + screen position for picking
       if (u.alive && !u.ko) {
         proj.set(x, y + (def.height || 1.8) * 0.5 * UNIT_SCALE, z).project(cam);

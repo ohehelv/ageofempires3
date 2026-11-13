@@ -388,12 +388,14 @@ function buildTrees(map, trees) {
   GFX.treeGroup = group;
   GFX.fallingTrees = [];
 }
-const _tm4 = new THREE.Matrix4(), _tq = new THREE.Quaternion(), _te = new THREE.Euler(), _tp = new THREE.Vector3(), _ts = new THREE.Vector3();
+const _tm4 = new THREE.Matrix4(), _tq = new THREE.Quaternion(), _treeYaw = new THREE.Quaternion(), _tp = new THREE.Vector3(), _ts = new THREE.Vector3();
+const TREE_UP = new THREE.Vector3(0, 1, 0), _treeFallAxis = new THREE.Vector3();
 function setTreeMatrix(ref, fall, fallDir, scaleMul) {
   const it = ref.it;
-  _te.set(fall, fallDir, 0, 'YXZ');
-  _tq.setFromEuler(_te);
-  _tp.set(it.x, it.y + (fall > 0 ? 0.15 : 0), it.z);
+  _treeYaw.setFromAxisAngle(TREE_UP, it.rot);
+  _treeFallAxis.set(Math.cos(fallDir), 0, -Math.sin(fallDir));
+  _tq.setFromAxisAngle(_treeFallAxis, fall).multiply(_treeYaw);
+  _tp.set(it.x, it.y + Math.sin(fall) * 0.15, it.z);
   const s = it.s * scaleMul;
   _ts.set(s, s, s);
   _tm4.compose(_tp, _tq, _ts);
@@ -420,7 +422,7 @@ function updateFallingTrees(dt) {
     f.t = Math.min(1, f.t + dt * 1.1);
     const e = f.t * f.t;
     setTreeMatrix(f.ref, e * 1.48, f.dir, 1);
-    if (f.t >= 1) L.splice(i, 1);
+    if (f.t >= 1) { f.ref.onGround = true; L.splice(i, 1); }
   }
 }
 

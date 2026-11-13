@@ -122,7 +122,7 @@ function hat(b, kind, y, R, o) {
 
 // weapons are attached to the right hand (bone 5) or left hand (bone 6); modelled pointing UP from the hand
 function weaponR(b, h, kind) {
-  const R = h.R, bone = 5 + R, pv = h.handR, pv2 = h.shR;
+  const R = h.R, bone = h.settler ? (kind === 'musket' ? 50 : 40) : 5 + R, pv = h.handR, pv2 = h.shR;
   const x = pv[0] + 0.02, y = pv[1], z = pv[2] + 0.04;
   const o = (extra) => Object.assign({ bone, pivot: pv, pivot2: pv2 }, extra || {});
   if (importedWeapon(b, kind, x, y, z, o())) return;
@@ -252,7 +252,8 @@ function unitModel(key) {
   switch (key) {
     case 'settler': {
       const h = buildHuman(b, { coat: COL.linen, vest: TEAM, vestTeam: 0.85, sleeve: COL.linen, pants: 0x6a5238, hat: 'cap', hatColor: 0x6b4f33, cuff: COL.linen });
-      weaponR(b, h, 'axe'); style = 1; break;
+      h.settler = true;
+      weaponR(b, h, 'axe'); weaponR(b, h, 'musket'); style = 5; break;
     }
     case 'explorer': {
       const h = buildHuman(b, { coatLong: true, hat: 'brim', bandTeam: true, pants: 0xcfc3a5, boots: 0x231c17, belts: false, sash: true, cuff: COL.brass, beard: 0x5a3e2a });
@@ -359,9 +360,16 @@ function unitModel(key) {
       buildHuman(b, {}); break;
     }
   }
-  const geo = b.build();
-  UNIT_MODELS[key] = { geo, style };
-  return UNIT_MODELS[key];
+  return UNIT_MODELS[key] = buildUnitModel(b, key, style);
+}
+
+function buildUnitModel(builder, key, style) {
+  const geo = builder.build();
+  if (!builder.skin) return { geo, style };
+  const skin = builder.skin.pivots;
+  const material = MATS[key] = patchMaterial(new THREE.MeshStandardMaterial({ vertexColors: true }),
+    { anim: true, skin, team: true, vmat: true, fow: false });
+  return { geo, style, material, depth: makeDepthMaterial({ anim: true, skin }) };
 }
 
 function artilleryModel(b, key) {

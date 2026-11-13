@@ -2,7 +2,8 @@
 // 02_data.js — game definitions (units, buildings, techs, ages, cards, civs, biomes)
 // ---------------------------------------------------------------------------
 const RES = ['food', 'wood', 'coin', 'stone'];
-const ANIM = { IDLE: 0, MOVE: 1, GUN: 2, SWORD: 3, WORK: 4, GATHER: 5, PIKE: 6, CANNON: 7, BOW: 8, THROW: 9, DEAD: 10, XBOW: 11 };
+const ANIM = { IDLE: 0, MOVE: 1, GUN: 2, SWORD: 3, WORK: 4, GATHER: 5, PIKE: 6, CANNON: 7, BOW: 8, THROW: 9, DEAD: 10, XBOW: 11, CHOP: 12, CHOP_LOG: 13 };
+const CHOP_PERIOD = 1.1, CHOP_IMPACT = 0.6;
 const RES_NAME = { food: 'еда', wood: 'дерево', coin: 'монеты', stone: 'камень' };
 const RES_NAME_GEN = { food: 'еды', wood: 'дерева', coin: 'монет', stone: 'камня' };
 const RES_TITLE = { food: 'Еда', wood: 'Дерево', coin: 'Монеты', stone: 'Камень' };

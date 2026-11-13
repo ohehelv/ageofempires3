@@ -256,7 +256,7 @@ class Unit {
         default: this.order = null;
       }
     }
-    if (!this.moving && this.anim === ANIM.MOVE) this.setAnim(ANIM.IDLE);
+    if (!this.moving && (this.anim === ANIM.MOVE || !this.order)) this.setAnim(ANIM.IDLE);
     // regeneration
     if (this.player && this.player.mods.regen && !this.order && this.hp < this.maxHp && this.isMilitary && this.game.time - this.lastHitT > 6) this.hp = Math.min(this.maxHp, this.hp + this.player.mods.regen * dt);
     if (this.def.tags.has('guardian') && !this.order && this.hp < this.maxHp && this.game.time - this.lastHitT > 8) this.hp = Math.min(this.maxHp, this.hp + 4 * dt);
@@ -462,7 +462,7 @@ class Unit {
       const m = d.melee;
       this.cool = m.rof * (0.9 + g.rng.next() * 0.2);
       const a = ANIM_OF[m.anim] || ANIM.SWORD;
-      this.setAnim(a, this.anim !== a);
+      this.setAnim(a, true);
       if (m.splash) {
         const hits = g.unitsInRadius(t.x, t.z, m.splash, (u) => g.hostile(this, u));
         for (const u of hits) g.damage(u, m.dmg * mul * (u === t ? 1 : 0.5), this, 'melee');
@@ -545,19 +545,28 @@ class Unit {
     this.faceDir(t.x - this.x, t.z - this.z, dt, 8);
     const rateKey = isBld ? t.def.rateKey : t.rateKey;
     const resType = isBld ? t.def.gather : t.res;
-    const animK = rateKey === 'wood' || rateKey === 'mine' || rateKey === 'quarry' ? ANIM.WORK : ANIM.GATHER;
+    const chopping = t.rkind === 'tree';
+    const animK = chopping ? ANIM.CHOP : rateKey === 'mine' || rateKey === 'quarry' ? ANIM.WORK : ANIM.GATHER;
     if (this.anim !== animK) this.setAnim(animK);
     let amt = GATHER[rateKey] * p.gatherMul(rateKey) * dt;
     if (!isBld) {
       amt = Math.min(amt, t.amount);
       t.amount -= amt;
-      if (t.rkind === 'tree' && !t.felled) { t.felled = true; g.onTreeFelled(t, this); }
     }
     p.gain(resType, amt);
-    this.gatherSoundT -= dt;
-    if (this.gatherSoundT <= 0) {
-      this.gatherSoundT = rateKey === 'wood' || rateKey === 'mine' || rateKey === 'quarry' ? 1.11 : 2.4;
-      g.fxGather(this, rateKey);
+    if (chopping) {
+      const swing = Math.floor((this.animT - CHOP_IMPACT + 1e-8) / CHOP_PERIOD);
+      const previous = Math.floor((this.animT - dt - CHOP_IMPACT + 1e-8) / CHOP_PERIOD);
+      if (swing > previous) {
+        g.fxGather(this, rateKey, t);
+        if (!t.felled) { t.felled = true; g.onTreeFelled(t, this); }
+      }
+    } else {
+      this.gatherSoundT -= dt;
+      if (this.gatherSoundT <= 0) {
+        this.gatherSoundT = rateKey === 'mine' || rateKey === 'quarry' ? 1.11 : 2.4;
+        g.fxGather(this, rateKey);
+      }
     }
     if (!isBld && t.amount <= 0.001) {
       g.depleteResource(t);

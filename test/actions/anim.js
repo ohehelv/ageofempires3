@@ -1,4 +1,9 @@
+const assert = require('node:assert/strict');
+
 module.exports = async (page, { shot }) => {
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
   await page.waitForTimeout(1200);
   await page.click('#btn-start');
   await page.waitForFunction(() => window.__nw.game && !window.__nw.App.attract, null, { timeout: 60000 });
@@ -9,7 +14,6 @@ module.exports = async (page, { shot }) => {
     const p = game.players[0], tc = p.tc;
     const cx = tc.x + 14, cz = tc.z + 14;
     const mk = (owner, key, x, z, h) => { const pos = game.freeNear(x, z); const u = game.addUnit(key, owner, pos.x, pos.z); u.heading = h || 0; return u; };
-    window.__a = [];
     // marching musketeers
     for (let i = 0; i < 4; i++) { const u = mk(0, 'musketeer', cx - 6 + i * 1.6, cz - 4, 0); u.cmdMove(cx - 6 + i * 1.6, cz + 30); }
     // aiming musketeers vs enemy pikemen
@@ -27,4 +31,10 @@ module.exports = async (page, { shot }) => {
   await ev(() => { const g = window.__nw.game; for (let i = 0; i < 9; i++) g.tick(); });
   await page.waitForTimeout(1500);
   await shot('anim2');
+  const skinning = await ev(() => ['musketeer', 'hussar', 'falconet'].every((key) => {
+    const set = window.__nw.RS.units.sets[key];
+    return set?.mesh.geometry.attributes.aSkinWeights.array.some((weight) => weight > 0 && weight < 1);
+  }));
+  assert.ok(skinning);
+  assert.deepEqual(errors, []);
 };

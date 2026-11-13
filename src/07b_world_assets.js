@@ -4,7 +4,7 @@ const ART_COLORS = new Map();
 
 function artMesh(key) {
   if (ART_CACHE.has(key)) return ART_CACHE.get(key);
-  const [count, encoded, groups, joints] = ART_MODELS[key];
+  const [count, encoded, groups, joints, , weights] = ART_MODELS[key];
   const bytes = Uint8Array.from(atob(encoded), (c) => c.charCodeAt(0));
   const view = new DataView(bytes.buffer);
   const vertices = [], indices = [], bounds = new THREE.Box3();
@@ -17,7 +17,7 @@ function artMesh(key) {
     bounds.expandByPoint(p);
   }
   for (let at = count * 13; at < bytes.length; at += 2) indices.push(view.getUint16(at, true));
-  const mesh = { vertices, indices, groups, joints, bounds };
+  const mesh = { vertices, indices, groups, joints, bounds, weights: weights && Uint8Array.from(atob(weights), (c) => c.charCodeAt(0)) };
   ART_CACHE.set(key, mesh);
   return mesh;
 }
@@ -39,6 +39,9 @@ function artPart(b, key, options = {}) {
   const point = (p) => new THREE.Vector3().fromArray(p).applyMatrix4(transform).toArray();
   const joints = new Map(model.joints.map(([name, ...p]) => [name, point(p)]));
   const rig = options.rig ? options.rig(joints) : null;
+  const skin = options.skin && model.weights && rig;
+  if (skin && !b.skin) b.skin = { bones: [], weights: [], pivots: new Float32Array(40 * 3) };
+  if (skin) for (const influence of rig.values()) b.skin.pivots.set(influence.pivot, influence.bone * 3);
   const defaultPivot = options.pivot || [0, 0, 0];
   const defaultBone = options.bone || 0;
   const bounds = new THREE.Box3();
@@ -56,7 +59,29 @@ function artPart(b, key, options = {}) {
       const n = v.n.clone().applyMatrix3(normal).normalize();
       const joint = model.joints[v.joint]?.[0] || '';
       const binding = rig?.get(joint) || options.vertexRig?.(p, v.color);
-      if (binding?.rest) {
+      const vertex = b.P.length / 3;
+      const at = index * 8;
+      const total = skin ? model.weights[at + 4] + model.weights[at + 5] + model.weights[at + 6] + model.weights[at + 7] : 0;
+      if (total) {
+        const posed = new THREE.Vector3(), posedNormal = new THREE.Vector3();
+        for (let i = 0; i < 4; i++) {
+          const weight = model.weights[at + 4 + i] / total;
+          if (!weight) continue;
+          const influence = rig.get(model.joints[model.weights[at + i]]?.[0]);
+          const bone = influence?.bone ?? defaultBone;
+          const data = vertex * 4 + i;
+          b.skin.bones[data] = bone;
+          b.skin.weights[data] = weight;
+          if (influence?.rest) {
+            posed.addScaledVector(p.clone().sub(influence.origin).applyQuaternion(influence.rest).add(influence.origin), weight);
+            posedNormal.addScaledVector(n.clone().applyQuaternion(influence.rest), weight);
+          } else {
+            posed.addScaledVector(p, weight);
+            posedNormal.addScaledVector(n, weight);
+          }
+        }
+        p.copy(posed); n.copy(posedNormal).normalize();
+      } else if (binding?.rest) {
         p.sub(binding.origin).applyQuaternion(binding.rest).add(binding.origin);
         n.applyQuaternion(binding.rest);
       }
@@ -65,7 +90,6 @@ function artPart(b, key, options = {}) {
       if (!ART_COLORS.has(color)) ART_COLORS.set(color, linColor(color));
       const c = ART_COLORS.get(color);
       const pivot = binding?.pivot || defaultPivot;
-      const vertex = b.P.length / 3;
       remap.set(index, vertex);
       if (options.sourceVertices) options.sourceVertices.push(index);
       b.indices.push(vertex);

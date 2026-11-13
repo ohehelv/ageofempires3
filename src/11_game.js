@@ -541,7 +541,7 @@ class Game extends Emitter {
   fxMusket(u, t, hunting) { const m = this.muzzle(u), a = this.aimPoint(t); this.fx('musket', m.x, m.z, { m, a, hunting, heading: u.heading }); }
   fxMelee(u, t) { this.fx(u.def.tags.has('animal') ? 'bite' : 'melee', u.x, u.z, { a: this.aimPoint(t) }); }
   fxTorch(u, t) { this.fx('torch', u.x, u.z, { a: this.aimPoint(t) }); }
-  fxGather(u, k) { this.fx('gather', u.x, u.z, { k, u }); }
+  fxGather(u, k, tree) { this.fx('gather', u.x, u.z, { k, u, tree }); }
   fxBuild(u, b) { this.fx('hammer', u.x, u.z, { u }); }
 
   // ---------------------------------------------------------------- resources

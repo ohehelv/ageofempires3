@@ -9,14 +9,17 @@ function importedHuman(b, o) {
     for (const side of ['L', 'R']) {
       const right = side === 'L'; // these source rigs face +Z, with their left on +X
       const sh = joints.get(`UpperArm.${side}`);
+      const elbow = joints.get(`LowerArm.${side}`);
       const hand = joints.get(`Middle2.${side}`) || joints.get(`Middle1.${side}`) || joints.get(`Wrist.${side}`);
       const hip = joints.get(`UpperLeg.${side}`);
+      const knee = joints.get(`LowerLeg.${side}`);
       const origin = new THREE.Vector3().fromArray(sh);
       const grip = new THREE.Vector3().fromArray(hand).sub(origin);
       const rest = new THREE.Quaternion().setFromUnitVectors(grip.clone().normalize(), new THREE.Vector3(right ? 0.13 : -0.13, -1, 0.14).normalize());
       hands[right ? 'handR' : 'handL'] = grip.applyQuaternion(rest).add(origin).toArray();
       hands[right ? 'shR' : 'shL'] = sh;
       const arm = { bone: R + (right ? 4 : 3), pivot: sh, origin, rest };
+      const forearm = { ...arm, bone: R + (right ? 17 : 16), pivot: new THREE.Vector3().fromArray(elbow).sub(origin).applyQuaternion(rest).add(origin).toArray() };
       const leg = { bone: rider ? R : right ? 2 : 1, pivot: hip };
       if (rider) {
         leg.origin = new THREE.Vector3().fromArray(hip);
@@ -24,8 +27,10 @@ function importedHuman(b, o) {
       }
       for (const name of joints.keys()) {
         if (!name.endsWith(`.${side}`)) continue;
-        if (/^(?:UpperArm|LowerArm|Wrist|Index|Middle|Ring|Pinky|Thumb)/.test(name)) bindings.set(name, arm);
-        if (/^(?:UpperLeg|LowerLeg|Foot)/.test(name)) bindings.set(name, leg);
+        if (name.startsWith('UpperArm')) bindings.set(name, arm);
+        if (/^(?:LowerArm|Wrist|Index|Middle|Ring|Pinky|Thumb)/.test(name)) bindings.set(name, forearm);
+        if (name.startsWith('UpperLeg')) bindings.set(name, leg);
+        if (/^(?:LowerLeg|Foot)/.test(name)) bindings.set(name, rider ? leg : { bone: right ? 19 : 18, pivot: knee });
       }
     }
     return bindings;
@@ -38,7 +43,7 @@ function importedHuman(b, o) {
   };
   const variant = o.cuirass ? 0x8d9ba0 : o.kaftan ? 0x705644 : o.coat === TEAM || o.coat === undefined ? 0xc7b79b : o.coat;
   const body = artPart(b, model, {
-    fit: [0, o.hat === 'brim' ? 1.92 : 1.83], y: o.oy, bone: R, rig,
+    fit: [0, o.hat === 'brim' ? 1.92 : 1.83], y: o.oy, bone: R, rig, skin: true,
     color: (hex, joint, p) => cloth(hex, joint, p) ? srgbMix(hex, variant, 0.57) : hex,
     team: (hex, joint, p) => cloth(hex, joint, p) ? (o.cuirass ? 0.37 : (o.coatTeam ?? o.vestTeam ?? o.cuffTeam ?? 0.8)) : 0,
   });
@@ -114,15 +119,15 @@ function importedAnimal(b, key) {
     return { bone: (front ? 7 : 9) + (side(p) > 0 ? 0 : 1), pivot: [side(p) * d * 0.095, h * 0.41, (front ? 1 : -1) * d * 0.27] };
   };
   artPart(b, model, {
-    fit: [0, h, d], stretch: key === 'bison' ? [1.16, 1, 1] : [1, 1, 1], rig: animalRig,
+    fit: [0, h, d], stretch: key === 'bison' ? [1.16, 1, 1] : [1, 1, 1], rig: animalRig, skin: true,
     vertexRig: key === 'bison' || key === 'bear' ? unriggedLeg : undefined, bone: 13, color,
   });
-  return { geo: b.build(), style: 1 };
+  return buildUnitModel(b, key, 1);
 }
 
 function importedHorse(b, o) {
   const z = o.z || 0;
-  artPart(b, 'horse', { fit: [0, 1.86, 2.55], z, rig: animalRig, bone: 13,
+  artPart(b, 'horse', { fit: [0, 1.86, 2.55], z, rig: animalRig, skin: true, bone: 13,
     color: (hex) => {
       const r = hex >> 16, g = (hex >> 8) & 255, blue = hex & 255;
       return r > blue * 1.27 && r > g * 1.12 ? srgbMix(hex, o.col || 0x674531, 0.52) : hex;
@@ -152,6 +157,10 @@ function importedArtillery(b, key) {
   weaponR(b, crew, 'rammer');
   for (const data of [b.P, b.PV, b.PV2]) for (let i = start; i < data.length; i += 3) {
     data[i] += 0.93; data[i + 2] -= 0.64;
+  }
+  if (b.skin) for (const bone of [1, 2, 3, 4, 16, 17, 18, 19]) {
+    b.skin.pivots[bone * 3] += 0.93;
+    b.skin.pivots[bone * 3 + 2] -= 0.64;
   }
 }
 

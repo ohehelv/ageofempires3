@@ -79,6 +79,7 @@ TRIANGLE_LIMITS.update(dict.fromkeys(('cannon', 'cart', 'treasure', 'well'), 120
 TRIANGLE_LIMITS.update(dict.fromkeys(('bow', 'spear', 'roundShield', 'claymore', 'bomb', 'musket', 'pistol', 'cutlass', 'axe'), 520))
 
 DEER_CLIPS = {'Idle': 16, 'Walk': 20, 'Gallop': 16, 'Death': 22}
+WEIGHTED_MODELS = {'farmer', 'adventurer', 'captain', 'henry', 'anne', 'horse', 'wolf', 'bear'}
 
 
 def download(url):
@@ -216,10 +217,12 @@ class Gltf:
                 p = local @ world[:3, :3].T + world[:3, 3]
                 color = self.colors(prim, attrs, len(p))
                 joint = np.full(len(p), 255, dtype='u1')
+                influences = None
                 if 'JOINTS_0' in attrs:
                     bones = self.accessor(attrs['JOINTS_0'])
                     weights = self.accessor(attrs['WEIGHTS_0'])
                     joint = joint_ids[bones[np.arange(len(p)), weights.argmax(axis=1)]]
+                    influences = np.column_stack((joint_ids[bones], np.rint(weights * 255))).astype('u1')
                     blended = np.einsum('vk,vkij->vij', weights, skin_matrices[bones])
                     p = np.einsum('vij,vj->vi', blended[:, :3, :3], local) + blended[:, :3, 3]
                 faces = self.accessor(prim['indices']).ravel() if 'indices' in prim else np.arange(len(p))
@@ -238,7 +241,7 @@ class Gltf:
                     n = np.zeros_like(p)
                     np.add.at(n, faces, np.repeat(flat, 3, axis=0))
                 n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-7)
-                yield node.get('name', mesh.get('name', '')), p, n, color, joint, faces, joint_names, joint_points
+                yield node.get('name', mesh.get('name', '')), p, n, color, joint, faces, joint_names, joint_points, influences
 
 
 def sample_track(times, values, time, rotation):
@@ -336,9 +339,9 @@ def deer_motion(gltf, anchor, scale, add_horns):
     return [clips, positions.shape[1], normals.shape[1], base64.b64encode(packed).decode()]
 
 
-def simplify(p, n, color, joint, indices, scale, budget):
+def simplify(p, n, color, joint, indices, scale, budget, influences):
     if len(indices) <= budget * 3:
-        return p, n, color, joint, indices
+        return p, n, color, joint, indices, influences
     # Keep palette and limb boundaries while collapsing the smallest details.
     for resolution in (96, 64, 48, 36, 28, 20, 15, 10):
         grid = np.floor(p * (resolution / scale)).astype(int)
@@ -352,13 +355,14 @@ def simplify(p, n, color, joint, indices, scale, budget):
         if len(faces) <= budget * 3:
             break
     if not len(faces):
-        return p, n, color, joint, indices
+        return p, n, color, joint, indices, influences
     used, faces = np.unique(faces, return_inverse=True)
     positions = np.zeros((len(representative), 3))
     np.add.at(positions, groups, p)
     positions /= np.bincount(groups)[:, None]
     representative = representative[used]
-    return positions[used], n[representative], color[representative], joint[representative], faces
+    return positions[used], n[representative], color[representative], joint[representative], faces, (
+        influences[representative] if influences is not None else None)
 
 
 def convert(item):
@@ -368,7 +372,7 @@ def convert(item):
     if key == 'doe':
         p, n = pronghorn_horns(gltf, gltf.world)
         color = np.tile(np.array([0x38, 0x2c, 0x22], dtype='u1'), (len(p), 1))
-        parts.append(('Horns', p, n, color, np.full(len(p), 255), np.arange(len(p)), *parts[-1][-2:]))
+        parts.append(('Horns', p, n, color, np.full(len(p), 255), np.arange(len(p)), *parts[-1][6:8], None))
     if key in ('captain', 'henry', 'anne'):
         parts = [part for part in parts if part[0] == parts[0][0]]
     vertices = np.concatenate([part[1] for part in parts])
@@ -377,16 +381,18 @@ def convert(item):
     anchor[1] = low[1]
     scale = max(high - low)
     data, groups, offset = [], [], 0
-    faces = []
+    faces, skins = [], []
     total = sum(len(part[5]) // 3 for part in parts)
-    for name, p, n, color, joint, indices, joint_names, joint_points in parts:
+    for name, p, n, color, joint, indices, joint_names, joint_points, influences in parts:
         budget = max(12, len(indices) // 3 * TRIANGLE_LIMITS.get(key, total) // total)
-        p, n, color, joint, indices = simplify(p, n, color, joint, indices, scale, budget)
+        p, n, color, joint, indices, influences = simplify(p, n, color, joint, indices, scale, budget, influences)
         pos = np.rint((p - anchor) * (16384 / scale)).astype('<i2')
         norm = np.rint(n * 127).astype('i1')
         data.append(np.column_stack((pos.view('u1'), norm.view('u1'), color, joint.astype('u1'))).tobytes())
         groups.append([name, len(indices)])
         faces.append(indices.astype('u4') + offset)
+        if key in WEIGHTED_MODELS:
+            skins.append((influences if influences is not None else np.zeros((len(p), 8), dtype='u1')).tobytes())
         offset += len(p)
     if offset > 65535 or len(joint_names) >= 255:
         raise ValueError(f'Model is too large: {key}')
@@ -397,6 +403,8 @@ def convert(item):
     model = [offset, base64.b64encode(blob).decode(), groups, joints]
     if key in ('doe', 'stag'):
         model.append(deer_motion(gltf, anchor, scale, key == 'doe'))
+    if skins:
+        model.extend((None, base64.b64encode(b''.join(skins)).decode()))
     return key, model
 
 
